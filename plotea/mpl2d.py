@@ -120,6 +120,12 @@ class PlotterMpl(ABC):
     self.ax.set_xlabel(kwargs.get('xlabel', None))
     self.ax.set_ylabel(kwargs.get('ylabel', None))
     self._invert_vertical_axis(self.ax, **kwargs)
+  def _invert_vertical_axis(self, ax, **kwargs):
+    pass
+  def _prep(self, **kwargs):
+    self.ax = kwargs.get('ax', plt.gca())
+    self._parse_kwargs(**kwargs)  
+  # -----------------------------------------------------------------------------
   @abstractmethod
   def _parse_kwargs(self, **kwargs):
     """
@@ -130,9 +136,6 @@ class PlotterMpl(ABC):
   @abstractmethod
   def _plot(self, arr):
     pass
-  def _prep(self, **kwargs):
-    self.ax = kwargs.get('ax', plt.gca())
-    self._parse_kwargs(**kwargs)
 class Contour(PlotterMpl):
   def _invert_vertical_axis(self, ax, **kwargs):
     if not kwargs.get('vertical_axis_up', True):
@@ -159,15 +162,44 @@ class Imshow(PlotterMpl):
     if kwargs.get('vertical_axis_up', True):
       # print('Inverting vertical axis.')
       ax.invert_yaxis()    
-  def _plot(self, arr, **kwargs):
-    self.ax.imshow(arr.T, **self.kwargs)
+  def _plot(self, arr):
+    im = self.ax.imshow(arr.T, **self.kwargs_imshow)
+    self.ax.figure.colorbar(im, ax=self.ax, **self.kwargs_cbar)
   def _parse_kwargs(self, **kwargs):
+    self._parse_kwargs_imshow(**kwargs)
+    self._parse_kwargs_cbar(**kwargs)  
+  def _parse_kwargs_imshow(self, **kwargs):
     new_kwargs = {}
     defaults = dict(cmap=None, norm=None, aspect=None, interpolation=None, \
       alpha=None, vmin=None, vmax=None, origin=None, extent=None)
     for key, val in defaults.items():
       new_kwargs[key] = kwargs.get(key, val)
+    self.kwargs_imshow = new_kwargs
+  def _parse_kwargs_cbar(self, **kwargs):  
+    new_kwargs = {}
+    defaults = dict(label='')
+    for key, val in defaults.items():
+      new_kwargs[key] = kwargs.get(key, val)
+    self.kwargs_cbar = new_kwargs      
+class PltPlot(PlotterMpl):
+  """
+  Wrapper around plt.plot
+  """
+  def _plot(self, arr):
+    if self.xaxis is None:
+      self.args = [arr]
+    else:
+      self.args = [self.xaxis, arr]
+    plt.plot(*self.args, **self.kwargs)
+  def _parse_kwargs(self, **kwargs):
+    new_kwargs = {}
+    defaults = dict(color='k', linestyle='-', marker=None)
+    for key, val in defaults.items():
+      new_kwargs[key] = kwargs.get(key, val)
     self.kwargs = new_kwargs
+  def _prep(self, **kwargs):
+    super()._prep(**kwargs)
+    self.xaxis = kwargs.get('xaxis', None)
 class Shade(Imshow):
   def _parse_kwargs(self, **kwargs):
     super()._parse_kwargs(**kwargs)
@@ -183,13 +215,15 @@ class Shade(Imshow):
     new_kwargs = {}
     defaults = dict(blend_mode='soft', vert_exag=1)
     # convert string into colormap as required by shade
-    new_kwargs['cmap'] = plt.cm.get_cmap(self.kwargs.get('cmap', None))    
+    new_kwargs['cmap'] = plt.cm.get_cmap(self.kwargs_imshow.get('cmap', None))    
     for key, val in defaults.items():
       new_kwargs[key] = kwargs.get(key, val)
     self.kwargs_shade = new_kwargs
   def _plot(self, arr):
+    imshow_mappable = self.ax.imshow(arr.T, **self.kwargs_imshow)
     im = LightSource(**self.kwargs_light_source).shade(arr.T, **self.kwargs_shade)
-    self.ax.imshow(im, **self.kwargs)
+    im = self.ax.imshow(im, **self.kwargs_imshow)
+    self.ax.figure.colorbar(imshow_mappable, ax=self.ax, **self.kwargs_cbar)
 # -------------------------------------------------------------------------------
 class Scroller(ABC):
   """
@@ -241,8 +275,6 @@ def plot_array_2d(arr, **kwargs):
   arr : 2d arrauray or Arr2d
   """
   return Imshow.plot(arr, **kwargs)
-def plot_array_1d(arr, ax=None, **kwargs):
-  plt.plot(arr)
 # -------------------------------------------------------------------------------
 # Utilities
 # -------------------------------------------------------------------------------
