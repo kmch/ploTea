@@ -1,10 +1,12 @@
 # :leaves: plotea 
 
-Generic framework for preparing publication-quality figures making the most of
-`matplotlib`, `pygmt`, `plotly` or any other custom plotting library.
+A framework for data-rich, interactive, publication-quality figures. Making the most of
+`matplotlib`, `plotly`, `pyvista`, `pygmt` and others.
 
 ## Features
-- 2d slices through volumes, surfaces and point-clouds,
-- bookkeeping and visualisation of slicing lines,
-- multi-layer plots with shading and transparency,
-- ...
+- self-consistent 2d slices through volumes, surfaces and point-clouds provided by `arrau`,
+- intelligent visualisation of slicing lines,
+- multi-layer plots with isolines, shading and transparency,
+- `vtk`-powered 3d rendering by `pyvista`,
+- interactive display of associated metadata using `plotly`,
+- geographical coordinate-systems provided by `pygmt`
