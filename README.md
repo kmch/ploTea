@@ -4,10 +4,10 @@ A framework for data-rich, interactive, publication-quality figures. Making the 
 `matplotlib`, `plotly`, `pyvista`, `pygmt` and more!
 
 ## Features
-- self-consistent 2d slices through volumes, surfaces and point-clouds provided by `arrau`,
+- self-consistent 2D slices through volumes, surfaces and point-clouds provided by `arrau`,
   - intelligent visualisation of slicing lines,
   - multi-layer plots with isolines, shading and transparency,
-- 3d rendering:
+- 3D rendering:
   - by `pyvista` (`vtk`-powered),
   - by `ipyvolume` (`OpenGL`-powered), 
 - interactive display of associated metadata using `ipywidgets` and `plotly`,
