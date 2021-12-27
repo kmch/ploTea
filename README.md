@@ -8,7 +8,7 @@ A framework for data-rich, interactive, publication-quality figures. Making the 
   - intelligent visualisation of slicing lines,
   - multi-layer plots with isolines, shading and transparency,
 - 3d rendering:
-  - by `pyvista` (`vtk`-powered)
-  - by `ipyvolume` (`OpenGL`-powered) 
+  - by `pyvista` (`vtk`-powered),
+  - by `ipyvolume` (`OpenGL`-powered), 
 - interactive display of associated metadata using `ipywidgets` and `plotly`,
-- geographical coordinate-systems provided by `pygmt`
+- geographical coordinate-systems provided by `pygmt`.
