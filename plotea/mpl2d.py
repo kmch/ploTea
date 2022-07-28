@@ -4,10 +4,12 @@ capabilities.
 """
 from abc import ABC, abstractmethod
 import cmocean
+import matplotlib.colors as mcolors # for cmap
 from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.pyplot as plt
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LightSource #, LogNorm
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 
 from plotea.generic import FigFactory, Fig
@@ -117,14 +119,16 @@ class PlotterMpl(ABC):
     ones fed into plot().
     """
     self.ax.set_aspect(kwargs.get('aspect', 'equal'))
-    self.ax.set_xlabel(kwargs.get('xlabel', None))
-    self.ax.set_ylabel(kwargs.get('ylabel', None))
+    if 'xlabel' in kwargs: # otherwise plot_slice_lines overwrites
+      self.ax.set_xlabel(kwargs.get('xlabel', None))
+    if 'ylabel' in kwargs:
+      self.ax.set_ylabel(kwargs.get('ylabel', None))
     self._invert_vertical_axis(self.ax, **kwargs)
   def _invert_vertical_axis(self, ax, **kwargs):
     pass
   def _prep(self, **kwargs):
     self.ax = kwargs.get('ax', plt.gca())
-    self._parse_kwargs(**kwargs)  
+    self._parse_kwargs(**kwargs)
   # -----------------------------------------------------------------------------
   @abstractmethod
   def _parse_kwargs(self, **kwargs):
@@ -141,13 +145,26 @@ class Contour(PlotterMpl):
     if not kwargs.get('vertical_axis_up', True):
       ax.invert_yaxis()  
   def _plot(self, arr):
-    self.ax.contour(arr.T, **self.kwargs)
+    cntr = self.ax.contour(arr.T, **self.kwargs_contour)
+    show_cntr_labels = self.kwargs_clabel['show_cntr_labels']
+    del self.kwargs_clabel['show_cntr_labels']
+    if show_cntr_labels:
+      self.ax.clabel(cntr, cntr.levels, **self.kwargs_clabel)
   def _parse_kwargs(self, **kwargs):
+    self._parse_kwargs_contour(**kwargs)
+    self._parse_kwargs_clabel(**kwargs)
+  def _parse_kwargs_contour(self, **kwargs):
     new_kwargs = {}
-    defaults = dict(extent=None, levels=10, colors='k', linewidths=.4)
+    defaults = dict(extent=None, levels=10, colors='k', linewidths=.4, linestyles='solid')
     for key, val in defaults.items():
       new_kwargs[key] = kwargs.get(key, val)
-    self.kwargs = new_kwargs  
+    self.kwargs_contour = new_kwargs
+  def _parse_kwargs_clabel(self, **kwargs):
+    new_kwargs = {}
+    defaults = dict(show_cntr_labels=False, fontsize='smaller', fmt='%1.0f')
+    for key, val in defaults.items():
+      new_kwargs[key] = kwargs.get(key, val)
+    self.kwargs_clabel = new_kwargs        
 class Contourf(Contour):
   def _plot(self, arr):
     self.ax.contourf(arr.T, **self.kwargs)
@@ -158,16 +175,32 @@ class Contourf(Contour):
       new_kwargs[key] = kwargs.get(key, val)
     self.kwargs = new_kwargs      
 class Imshow(PlotterMpl):
+  def _add_colorbar(self, mappable):
+    divider = make_axes_locatable(self.ax)
+    cax = divider.append_axes(**self.kwargs_divider)
+    cbar = self.ax.figure.colorbar(mappable, cax=cax, **self.kwargs_cbar) 
+    plt.sca(self.ax) # essential
   def _invert_vertical_axis(self, ax, **kwargs):
     if kwargs.get('vertical_axis_up', True):
       # print('Inverting vertical axis.')
-      ax.invert_yaxis()    
-  def _plot(self, arr):
-    im = self.ax.imshow(arr.T, **self.kwargs_imshow)
-    self.ax.figure.colorbar(im, ax=self.ax, **self.kwargs_cbar)
+      ax.invert_yaxis()
   def _parse_kwargs(self, **kwargs):
+    self._parse_kwargs_cbar(**kwargs)
+    self._parse_kwargs_divider(**kwargs)
     self._parse_kwargs_imshow(**kwargs)
-    self._parse_kwargs_cbar(**kwargs)  
+    self._parse_kwargs_misc(**kwargs)
+  def _parse_kwargs_cbar(self, **kwargs):  
+    new_kwargs = {}
+    defaults = dict(label='', orientation='vertical')
+    for key, val in defaults.items():
+      new_kwargs[key] = kwargs.get(key, val)
+    self.kwargs_cbar = new_kwargs      
+  def _parse_kwargs_divider(self, **kwargs):  
+    new_kwargs = {}
+    defaults = dict(position='right', size='3%', pad=0.2)
+    for key, val in defaults.items():
+      new_kwargs[key] = kwargs.get(key, val)
+    self.kwargs_divider = new_kwargs 
   def _parse_kwargs_imshow(self, **kwargs):
     new_kwargs = {}
     defaults = dict(cmap=None, norm=None, aspect=None, interpolation=None, \
@@ -175,15 +208,43 @@ class Imshow(PlotterMpl):
     for key, val in defaults.items():
       new_kwargs[key] = kwargs.get(key, val)
     self.kwargs_imshow = new_kwargs
-  def _parse_kwargs_cbar(self, **kwargs):  
+  def _parse_kwargs_misc(self, **kwargs):
     new_kwargs = {}
-    defaults = dict(label='')
+    defaults = dict(cbar=True, center_cmap=False)
     for key, val in defaults.items():
       new_kwargs[key] = kwargs.get(key, val)
-    self.kwargs_cbar = new_kwargs      
+    self.kwargs_misc = new_kwargs  
+  def _plot(self, arr):
+    self._set_cmap(arr)
+    mappable = self.ax.imshow(arr.T, **self.kwargs_imshow)
+    if self.kwargs_misc['cbar']:
+      self._add_colorbar(mappable)
+  def _set_cmap(self, arr):
+    cmap = self.kwargs_imshow['cmap']
+    center_cmap = self.kwargs_misc['center_cmap']
+    if isinstance(cmap, list):
+      if len(cmap) == 0:
+        cmap = ['cmo.turbid', 'cmo.deep']
+      else:
+        assert len(cmap) == 2
+      cm1, cm2 = cmap
+      cmap, norm = cat_2_cmaps(arr, cm1, cm2, centre=0)
+      self.kwargs_imshow['cmap'] = cmap
+      self.kwargs_imshow['norm'] = norm
+    elif center_cmap:
+      vmin = self.kwargs_imshow['vmin']
+      vmax = self.kwargs_imshow['vmax']
+      if vmin is None:
+        vmin = np.min(arr)
+      if vmax is None:
+        vmax = np.max(arr)
+      vmin, vmax = _center_around_zero(vmin, vmax)
+      self.kwargs_imshow['vmin'] = vmin
+      self.kwargs_imshow['vmax'] = vmax
 class PltPlot(PlotterMpl):
   """
   Wrapper around plt.plot
+  plotting 1d lines on 2d canvas.
   """
   def _plot(self, arr):
     if self.xaxis is None:
@@ -193,7 +254,7 @@ class PltPlot(PlotterMpl):
     plt.plot(*self.args, **self.kwargs)
   def _parse_kwargs(self, **kwargs):
     new_kwargs = {}
-    defaults = dict(color='k', linestyle='-', marker=None)
+    defaults = dict(color='k', linestyle='-', marker=None, label='', lw=2, alpha=1)
     for key, val in defaults.items():
       new_kwargs[key] = kwargs.get(key, val)
     self.kwargs = new_kwargs
@@ -214,18 +275,37 @@ class Shade(Imshow):
   def _parse_kwargs_shade(self, **kwargs):
     new_kwargs = {}
     defaults = dict(blend_mode='soft', vert_exag=1)
-    # convert string into colormap as required by shade
-    new_kwargs['cmap'] = plt.cm.get_cmap(self.kwargs_imshow.get('cmap', None))    
     for key, val in defaults.items():
       new_kwargs[key] = kwargs.get(key, val)
     self.kwargs_shade = new_kwargs
   def _plot(self, arr):
-    imshow_mappable = self.ax.imshow(arr.T, **self.kwargs_imshow)
-    im = LightSource(**self.kwargs_light_source).shade(arr.T, **self.kwargs_shade)
-    im = self.ax.imshow(im, **self.kwargs_imshow)
-    self.ax.figure.colorbar(imshow_mappable, ax=self.ax, **self.kwargs_cbar)
+    self._set_cmap(arr)
+    # convert string into colormap as required by shade
+    self.kwargs_shade['cmap'] = plt.cm.get_cmap(self.kwargs_imshow['cmap'])
+    self.kwargs_shade['norm'] = self.kwargs_imshow['norm']
+    mappable = self.ax.imshow(arr.T, **self.kwargs_imshow) # get mappable
+    shaded = LightSource(**self.kwargs_light_source).shade(arr.T, **self.kwargs_shade)
+    im = self.ax.imshow(shaded, **self.kwargs_imshow) # actual plot
+    if self.kwargs_misc['cbar']:
+      self._add_colorbar(mappable)
+class Wiggle(PlotterMpl):
+  def _format(self, **kwargs):
+    kwargs['aspect'] = kwargs.get('aspect', 'auto')
+    super()._format(**kwargs)  
+  def _parse_kwargs(self, **kwargs):
+    new_kwargs = {}
+    defaults = dict(gap=1, c='k')
+    for key, val in defaults.items():
+      new_kwargs[key] = kwargs.get(key, val)
+    self.kwargs = new_kwargs    
+  def _plot(self, arr):
+    gap = self.kwargs['gap']
+    axis0 = 0
+    for i, trace in enumerate(arr):
+        axis0 = i * gap 
+        plt.plot(trace+axis0, c=self.kwargs['c'])    
 # -------------------------------------------------------------------------------
-class Scroller(ABC):
+class ScrollerMpl(ABC):
   """
   Redraw axes upon
   mouse-scrolling action.
@@ -239,21 +319,23 @@ class Scroller(ABC):
   >>> fig.canvas.mpl_connect('scroll_event', tracker.onscroll)
 
   """
+  def __init__(self):
+    self._init()
+    self._update()
   def onscroll(self, event):
     if event.button == 'up':
       self.ind = (self.ind + self.istep) % self.svalue_max
     else:
       self.ind = (self.ind - self.istep) % self.svalue_max
     self.update()
-
   @abstractmethod
-  def __init__(self):
-    # plot the initial states
-    self.update()
-
-  @abstractmethod
-  def update(self):
+  def _init(self):
     pass
+  @abstractmethod
+  def _update(self):
+    pass
+class SliceScroller(ScrollerMpl):
+  pass
 # -------------------------------------------------------------------------------
 # Basic functions
 # -------------------------------------------------------------------------------
@@ -309,6 +391,49 @@ def cat_cmaps(cmaps, vmin, vmax):
   colors = np.vstack((colors1, colors2))
   my_cmap = LinearSegmentedColormap.from_list('my_cmap', colors)
   return my_cmap
+def cat_2_cmaps(data, cmap1, cmap2, centre=0, N=50):
+  # https://stackoverflow.com/questions/30082174/join-two-colormaps-in-imshow
+  cmap = {name:plt.get_cmap(name) for name in (cmap1, cmap2)}
+  vmin, vmax = (np.nextafter(min(data.min(), -1), -np.inf), 
+                np.nextafter(max(data.max(), 1), np.inf))
+  levels = np.concatenate([np.linspace(vmin, centre, N, endpoint=False),
+                           np.linspace(centre, vmax, N+1, endpoint=True)])
+  colors = np.concatenate([cmap[name](np.linspace(0, 1, N)) 
+                           for name in (cmap1, cmap2)])
+  cmap, norm = mcolors.from_levels_and_colors(levels, colors)
+  return cmap, norm
+def _center_around_zero(minn, maxx, **kwargs): #NOTE
+  """
+  Center a diverging colormap around zero.
+  
+  Parameters
+  ----------
+  minn, maxx : float
+    Extreme value of the image tfullwavepy.plot.
+  
+  **kwargs : keyword arguments (optional)
+    Current capabilities: 
+  
+  """  
+  # SIGNED ZERO (PLATFORM DEPENDENT) - OTHERWISE WRONG BEHAVIOUR
+  if minn == 0.0:
+    maxx = -0.0 
+          
+  if abs(minn) > abs(maxx):
+    a = abs(minn)
+  else:
+    a = abs(maxx)
+
+  vmin = -a 
+  vmax = a 
+  
+  return vmin, vmax
+def colorbar(mappable, ax, pos='right', size='3%', pad=0.2):
+  from mpl_toolkits.axes_grid1 import make_axes_locatable
+  divider = make_axes_locatable(ax)
+  cax = divider.append_axes(pos, size, pad)
+  cbar = ax.figure.colorbar(mappable, cax=cax) 
+  plt.sca(ax)
 def cm2inch(value, unit):
   inch = 2.54 # cm
   if unit == 'cm':
