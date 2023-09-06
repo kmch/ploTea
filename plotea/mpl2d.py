@@ -28,7 +28,7 @@ class FigMpl(Fig):
   just use the standalone plot() function.
   """
   def __init__(self, xsize=6, ysize=6, nrows=1, ncols=1,\
-    projection='2d', style='fwipy'):
+    projection='2d', style='default'):
     """
     """
     self._set_size(xsize, ysize)
@@ -140,40 +140,40 @@ class PlotterMpl(ABC):
   @abstractmethod
   def _plot(self, arr):
     pass
-class Contour(PlotterMpl):
-  def _invert_vertical_axis(self, ax, **kwargs):
-    if not kwargs.get('vertical_axis_up', True):
-      ax.invert_yaxis()  
-  def _plot(self, arr):
-    cntr = self.ax.contour(arr.T, **self.kwargs_contour)
-    show_cntr_labels = self.kwargs_clabel['show_cntr_labels']
-    del self.kwargs_clabel['show_cntr_labels']
-    if show_cntr_labels:
-      self.ax.clabel(cntr, cntr.levels, **self.kwargs_clabel)
-  def _parse_kwargs(self, **kwargs):
-    self._parse_kwargs_contour(**kwargs)
-    self._parse_kwargs_clabel(**kwargs)
-  def _parse_kwargs_contour(self, **kwargs):
-    new_kwargs = {}
-    defaults = dict(extent=None, levels=10, colors='k', linewidths=.4, linestyles='solid')
-    for key, val in defaults.items():
-      new_kwargs[key] = kwargs.get(key, val)
-    self.kwargs_contour = new_kwargs
-  def _parse_kwargs_clabel(self, **kwargs):
-    new_kwargs = {}
-    defaults = dict(show_cntr_labels=False, fontsize='smaller', fmt='%1.0f')
-    for key, val in defaults.items():
-      new_kwargs[key] = kwargs.get(key, val)
-    self.kwargs_clabel = new_kwargs        
-class Contourf(Contour):
-  def _plot(self, arr):
-    self.ax.contourf(arr.T, **self.kwargs)
-  def _parse_kwargs(self, **kwargs):
-    new_kwargs = {}
-    defaults = dict(extent=None, levels=10)
-    for key, val in defaults.items():
-      new_kwargs[key] = kwargs.get(key, val)
-    self.kwargs = new_kwargs      
+# class Contour(PlotterMpl):
+#   def _invert_vertical_axis(self, ax, **kwargs):
+#     if not kwargs.get('vertical_axis_up', True):
+#       ax.invert_yaxis()  
+#   def _plot(self, arr):
+#     cntr = self.ax.contour(arr.T, **self.kwargs_contour)
+#     show_cntr_labels = self.kwargs_clabel['show_cntr_labels']
+#     del self.kwargs_clabel['show_cntr_labels']
+#     if show_cntr_labels:
+#       self.ax.clabel(cntr, cntr.levels, **self.kwargs_clabel)
+#   def _parse_kwargs(self, **kwargs):
+#     self._parse_kwargs_contour(**kwargs)
+#     self._parse_kwargs_clabel(**kwargs)
+#   def _parse_kwargs_contour(self, **kwargs):
+#     new_kwargs = {}
+#     defaults = dict(extent=None, levels=10, colors='k', linewidths=.4, linestyles='solid')
+#     for key, val in defaults.items():
+#       new_kwargs[key] = kwargs.get(key, val)
+#     self.kwargs_contour = new_kwargs
+#   def _parse_kwargs_clabel(self, **kwargs):
+#     new_kwargs = {}
+#     defaults = dict(show_cntr_labels=False, fontsize='smaller', fmt='%1.0f')
+#     for key, val in defaults.items():
+#       new_kwargs[key] = kwargs.get(key, val)
+#     self.kwargs_clabel = new_kwargs        
+# class Contourf(Contour):
+#   def _plot(self, arr):
+#     self.ax.contourf(arr.T, **self.kwargs)
+#   def _parse_kwargs(self, **kwargs):
+#     new_kwargs = {}
+#     defaults = dict(extent=None, levels=10)
+#     for key, val in defaults.items():
+#       new_kwargs[key] = kwargs.get(key, val)
+#     self.kwargs = new_kwargs      
 class Imshow(PlotterMpl):
   def _add_colorbar(self, mappable):
     divider = make_axes_locatable(self.ax)
@@ -360,9 +360,13 @@ def plot_array_2d(arr, **kwargs):
 # -------------------------------------------------------------------------------
 # Utilities
 # -------------------------------------------------------------------------------
-def aspeqt(ax=plt.gca(), **kwargs):
+def aspeqt(ax=None, **kwargs):
+  if ax is None:
+    ax = plt.gca()
   ax.set_aspect('equal')
-def autect(ax=plt.gca(), **kwargs):
+def autect(ax=None, **kwargs):
+  if ax is None:
+    ax = plt.gca()
   ax.set_aspect('auto')
 def cat_cmaps(cmaps, vmin, vmax):
   """
@@ -434,6 +438,44 @@ def colorbar(mappable, ax, pos='right', size='3%', pad=0.2):
   cax = divider.append_axes(pos, size, pad)
   cbar = ax.figure.colorbar(mappable, cax=cax) 
   plt.sca(ax)
+def colors(n, cmap='rainbow', **kwargs): # move to generic
+  """
+  Create an iterator for rainbow colors.
+  
+  Parameters
+  ----------
+  n : int 
+    Number of colors in the spectrum.
+  
+  
+  Returns
+  -------
+  colors : iterator
+    c = next(colors)
+  
+  Notes
+  -----
+  Usage plot(..., c=next(colors))
+  
+  """
+  from matplotlib.cm import get_cmap
+  
+  if isinstance(n, list):
+    n = len(n)
+
+  cmap = get_cmap(cmap)
+  cols = iter(cmap(np.linspace(0, 1, n)))
+  
+  return cols
+
+def convert_to_ax_coords(v, axis, ax):
+  if axis == 'x':
+    vmin, vmax = ax.get_xlim()
+  elif axis == 'y':
+    vmin, vmax = ax.get_ylim()
+  else:
+    raise ValueError('Unknown axis: %s' % axis)
+  return (v - vmin) / (vmax - vmin)
 def cm2inch(value, unit):
   inch = 2.54 # cm
   if unit == 'cm':
@@ -464,7 +506,9 @@ def figax(figsize_x=15, figsize_y=5, unit='inch', **kwargs):
   figsize = (figsize_x, figsize_y)
   fig, ax = plt.subplots(figsize=figsize)
   return fig, ax 
-def flipy(ax=plt.gca(), **kwargs):
+def flipy(ax=None, **kwargs):
+  if ax is None:
+    ax = plt.gca()
   ax.invert_yaxis()
 def set_xlabels(labels, decim_xlabels=10, rotate_xlabels=None, **kwargs):
   """

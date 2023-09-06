@@ -6,7 +6,7 @@ class FigFactory:
   subclasses = {}
   @classmethod
   def create(cls, id, *args, **kwargs):
-    import p2d.mpl2d
+    import plotea.mpl2d
     if id not in cls.subclasses:
       raise ValueError('Wrong id {}'.format(id))
     return cls.subclasses[id](*args, **kwargs)
