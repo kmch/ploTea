@@ -4,8 +4,8 @@
     # Turn on minor ticks, top and right axis ticks, and change the direction to "in" 
     #xtick.top               :   True
     #ytick.right             :   True
-    xtick.minor.visible     :   True
-    ytick.minor.visible     :   True
+    xtick.minor.visible     :  False 
+    ytick.minor.visible     :  False
     #ytick.direction         :   in
     #xtick.direction         :   in
             
