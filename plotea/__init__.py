@@ -4,6 +4,5 @@ for scientific publications.
 
 """
 # import colorcet as cc # perceptually uniform colormaps such as cet_fire or cet_bkr
-# from plotea.generic import *
 from plotea.generic import *
 from plotea.mpl2d import *
