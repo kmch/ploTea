@@ -1,0 +1,23 @@
+package:
+  name: plotea
+  version: "0.0.1"  # Adjust the version number as needed
+
+source:
+  path: .  # Assuming the source code is in the current directory
+
+build:
+  noarch: python  # if pure Python (independent of the system architecture)
+
+requirements:
+  host:
+    - python
+    - setuptools
+  run:
+    - python
+    - autologging
+    # - matplotlib
+    # - numpy    
+
+extra:
+  channels:
+    - conda-forge

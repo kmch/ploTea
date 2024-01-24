@@ -1,7 +1,6 @@
 # :leaves: ploTea 
 
-A framework for data-rich, interactive, publication-quality figures. Making the most of
-`matplotlib`, `plotly`, `pyvista`, `pygmt` and more!
+A framework for data-rich, interactive, publication-quality figures. Making the most of `matplotlib`, `plotly`, `pyvista`, `pygmt` and more!
 
 ## Features
 - self-consistent 2D slices through volumes, surfaces and point-clouds provided by `arrau`,
