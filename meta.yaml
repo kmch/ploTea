@@ -1,6 +1,6 @@
 package:
   name: plotea
-  version: "0.0.1"  # Adjust the version number as needed
+  version: "0.0.2"  # Adjust the version number as needed
 
 source:
   path: .  # Assuming the source code is in the current directory
@@ -14,9 +14,12 @@ requirements:
     - setuptools
   run:
     - python
+    # - abc
     - autologging
-    # - matplotlib
-    # - numpy    
+    - cmocean
+    - matplotlib
+    - numpy    
+
 
 extra:
   channels:

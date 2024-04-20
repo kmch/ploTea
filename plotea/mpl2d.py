@@ -1,8 +1,8 @@
 """
 Wrapper around matplotlib 2D plotting functions. 
 """
-from abc import ABC, abstractmethod
-import cmocean
+# from abc import ABC, abstractmethod
+# import cmocean
 from autologging import logged, traced
 import matplotlib.colors as mcolors # for cmap
 from matplotlib.colors import LinearSegmentedColormap
@@ -307,7 +307,7 @@ def boxplot(df, c, rot=0, vert=0, ax=None, alpha=1., connect_means=True, \
 #   def _set_style(self, style):
 #     plt.style.use(['default', 'ggplot', style])
 # # -------------------------------------------------------------------------------
-class PlotterMpl(ABC):
+class PlotterMpl: #(ABC):
   def plot(self, arr, **kwargs):
     self._prep(**kwargs)
     self._plot(arr)
@@ -330,14 +330,14 @@ class PlotterMpl(ABC):
     self.ax = kwargs.get('ax', plt.gca())
     self._parse_kwargs(**kwargs)
   # -----------------------------------------------------------------------------
-  @abstractmethod
+  # @abstractmethod
   def _parse_kwargs(self, **kwargs):
     """
     From all kwargs, return only those understood
     by the plotting function.
     """
     pass    
-  @abstractmethod
+  # @abstractmethod
   def _plot(self, arr):
     pass
 
@@ -475,7 +475,7 @@ class Wiggle(PlotterMpl):
         axis0 = i * gap 
         plt.plot(trace+axis0, c=self.kwargs['c'])    
 # -------------------------------------------------------------------------------
-class ScrollerMpl(ABC):
+class ScrollerMpl: #(ABC):
   """
   Redraw axes upon
   mouse-scrolling action.
@@ -498,10 +498,10 @@ class ScrollerMpl(ABC):
     else:
       self.ind = (self.ind - self.istep) % self.svalue_max
     self.update()
-  @abstractmethod
+  # @abstractmethod
   def _init(self):
     pass
-  @abstractmethod
+  # @abstractmethod
   def _update(self):
     pass
 class SliceScroller(ScrollerMpl):

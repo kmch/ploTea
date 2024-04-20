@@ -2,11 +2,13 @@ from setuptools import setup, find_packages
 
 setup(
     name='plotea',
-    version='0.0.1',
+    version='0.0.2',
     packages=find_packages(), # organise the internal dependencies, not external 
     install_requires=[
+        # 'abc',
         'autologging',
-        # 'matplotlib',
+        # 'cmocean',
+        #'matplotlib',
         # 'numpy',
     ],    
     description='Framework for data-rich, interactive, publication-quality plots.',

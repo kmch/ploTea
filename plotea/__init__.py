@@ -1,7 +1,6 @@
 """
-Multi-layer 2d visualisations of 3d volumes, surfaces and point-clouds 
+Multi-layer 2D visualisations of 3D volume (sliced), surfaces and point-clouds 
 for scientific publications.
 
 """
-# import colorcet as cc # perceptually uniform colormaps such as cet_fire or cet_bkr
 from plotea.mpl2d import *
