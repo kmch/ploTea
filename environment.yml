@@ -1,23 +1,21 @@
 name: plotea 
 channels:
-  - conda-forge
   - defaults
+  - conda-forge
 dependencies:
-
-  - python=3.11
-
-# STAPLES
-  - autologging
-  - ipykernel # python -m ipykernel install --user --name=iogeo
+  - python=3.13
   - matplotlib
   - numpy
-  - pandas
   - pytest
   - sphinx
   - sphinx-rtd-theme
-
- # GEOSPATIAL ANALYSIS
-  # - geopandas
-  - geojson # used by pysheds
-  - xarray # numpy arrays endowed with metadata, good e.g. for netCDF4 files
-  # - pygmt # it seems better to still use GMT from terminal...
+# Data science
+  - pandas
+  - scipy
+# Geospatial
+  - geopandas
+  - xarray
+# Visualisation
+  - cartopy
+# Pip  
+  - pip
