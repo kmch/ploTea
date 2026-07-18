@@ -5,3 +5,35 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "plotea"
 version = "0.1.0"
+description = "Publication-quality scientific figures: maps, graphs, time series and volumes."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "Kajetan Chrapkiewicz"}]
+
+# matplotlib is capped below 4 because plotea/maps/carto.py will hook
+# _AxesBase._set_artist_props, which is private API (see PLAN.md, risk 1).
+# requires-python >=3.11 is set by plotea/log.py, which reads code.co_qualname.
+dependencies = [
+    "matplotlib>=3.9,<4",
+    "numpy",
+    "cartopy>=0.23",
+    "geopandas>=1.0",
+    "xarray",
+    "shapely",
+    "pyproj",
+]
+
+[project.optional-dependencies]
+raster = ["rioxarray"]
+dev = ["pytest", "pytest-cov"]
+docs = ["sphinx", "sphinx-rtd-theme"]
+
+[project.urls]
+Homepage = "https://github.com/kmch/plotea"
+
+[tool.setuptools.packages.find]
+include = ["plotea*"]
+exclude = ["plotea.legacy*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,27 @@
+"""
+Named regions of interest -- bounding boxes a string argument can point to.
+
+Notes
+-----
+Each entry is ``(minx, miny, maxx, maxy)`` in lon/lat degrees (EPSG:4326), i.e.
+``(lon_min, lat_min, lon_max, lat_max)``. ``resolve_bbox`` (in ``maps.vector``)
+turns a key of this table into a ``Bbox``.
+
+"""
+from plotea.log import get_logger
+
+_log = get_logger(__name__)
+
+
+# (minx, miny, maxx, maxy) = (lon_min, lat_min, lon_max, lat_max) in degrees.
+ROIS = {
+    'europe':      (-10.000, 35.000, 35.000, 72.000),
+    'europe_wide': (-15.000, 35.000, 35.000, 72.000),
+    'parnu':       (24.491, 57.973, 25.958, 59.1308),
+    'ee':          (21.764, 57.509, 28.208, 59.822),
+    # Country-level ROIs (mainland only)
+    'pl':          (12.128, 47.020, 26.105, 56.838),   # Poland + 2 deg padding
+    'uk':          (-10.390, 50.021, 1.746, 60.831),   # UK + Ireland
+    'fr':          (-4.762, 41.384, 9.556, 51.097),    # France (mainland)
+    'iberia':      (-9.479, 36.025, 4.322, 43.764),    # Spain + Portugal (mainland)
+}
