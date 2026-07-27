@@ -84,7 +84,7 @@ def europe_laea() -> ccrs.LambertAzimuthalEqualArea:
 _CRS_PRESETS = {'equal_earth': equal_earth, 'europe_laea': europe_laea}
 
 
-def resolve_crs(name: str) -> ccrs.CRS:
+def resolve_crs(crs: str | ccrs.CRS | None) -> ccrs.CRS:
     """
     Return the CRS for a preset name ('equal_earth', 'europe_laea').
 
@@ -107,9 +107,16 @@ def resolve_crs(name: str) -> ccrs.CRS:
     >>> crs = resolve_crs('equal_earth')
 
     """
-    try:
-        factory = _CRS_PRESETS[name]
-    except KeyError:
-        known = ', '.join(sorted(_CRS_PRESETS))
-        raise KeyError(f'unknown CRS preset {name!r}; known presets: {known}') from None
-    return factory()
+    if crs is None:
+        return equal_earth()
+    if isinstance(crs, ccrs.CRS):
+        return crs
+    if isinstance(crs, str):
+        try:
+            factory = _CRS_PRESETS[crs]
+        except KeyError:
+            known = ', '.join(sorted(_CRS_PRESETS))
+            raise KeyError(f'unknown CRS preset {crs!r}; known presets: {known}') from None
+        return factory()
+    
+    raise TypeError(f'unknown CRS type {type(crs).__name__}')

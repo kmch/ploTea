@@ -28,6 +28,7 @@ which fetches all resolutions of both themes in one go.
 """
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+from cartopy.mpl.geoaxes import GeoAxes
 
 from plotea.log import get_logger
 from plotea.maps.basemap_styles import BASEMAP_PLAIN, BasemapStyle
@@ -35,9 +36,76 @@ from plotea.maps.basemap_styles import BASEMAP_PLAIN, BasemapStyle
 _log = get_logger(__name__)
 
 
+class MapAxes(GeoAxes):
+    """
+    A cartopy GeoAxes that keeps a map's aspect fixed at 'equal'.
+
+    Notes
+    -----
+    A projected map must render with equal x/y scaling or the projection is
+    distorted. GeoPandas' ``plot`` defaults to ``aspect='auto'``, which for
+    lon/lat data calls ``set_aspect(1 / cos(lat))`` -- roughly 1.7 at European
+    latitudes -- and that silently squashes a map drawn on the axes. This subclass
+    ignores such external attempts and holds the aspect at 'equal', so a bare
+    ``gdf.plot(ax=ax)`` no longer needs ``aspect=None``. Verified: cartopy itself
+    does not set a numeric aspect via ``set_extent``, so forcing 'equal' never
+    fights the backend.
+
+    Examples
+    --------
+    >>> ax = new_axes(plt.figure(), equal_earth())
+    >>> type(ax).__name__
+    'MapAxes'
+
+    """
+
+    def set_aspect(self, aspect, *args, **kwargs):
+        """
+        Force 'equal', ignoring the requested aspect so overlays cannot squash the map.
+
+        Examples
+        --------
+        >>> ax.set_aspect(1.7)      # no-op; the map stays 'equal'
+
+        """
+        return super().set_aspect('equal', *args, **kwargs)
+
+
+class _MapProjection:
+    """
+    Adapter so ``add_subplot(projection=...)`` builds a ``MapAxes`` for a given CRS.
+
+    Notes
+    -----
+    matplotlib calls ``_as_mpl_axes`` on any non-string projection to learn which
+    axes class and kwargs to use; this returns ``MapAxes`` instead of the stock
+    ``GeoAxes`` cartopy's CRS would give.
+
+    Examples
+    --------
+    >>> ax = plt.figure().add_subplot(projection=_MapProjection(equal_earth()))
+
+    """
+
+    def __init__(self, crs: ccrs.CRS) -> None:
+        self.crs = crs
+
+    def _as_mpl_axes(self):
+        """
+        Return ``(MapAxes, kwargs)`` for matplotlib's projection machinery.
+
+        Examples
+        --------
+        >>> _MapProjection(equal_earth())._as_mpl_axes()[0].__name__
+        'MapAxes'
+
+        """
+        return MapAxes, {'projection': self.crs}
+
+
 def new_axes(fig, crs: ccrs.CRS):
     """
-    Add and return a ``cartopy`` GeoAxes for ``crs`` on ``fig``.
+    Add and return a ``MapAxes`` for ``crs`` on ``fig``.
 
     Parameters
     ----------
@@ -48,7 +116,8 @@ def new_axes(fig, crs: ccrs.CRS):
 
     Returns
     -------
-    cartopy.mpl.geoaxes.GeoAxes
+    MapAxes
+        A GeoAxes subclass whose aspect is locked to 'equal'.
 
     Notes
     -----
@@ -64,7 +133,7 @@ def new_axes(fig, crs: ccrs.CRS):
     >>> ax = new_axes(plt.figure(), equal_earth())
 
     """
-    return fig.add_subplot(1, 1, 1, projection=crs)
+    return fig.add_subplot(1, 1, 1, projection=_MapProjection(crs))
 
 
 def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: bool = True, ocean: bool = True, coastline: bool = True, borders: bool = True, graticules: bool = True, resolution: str = '50m') -> None:

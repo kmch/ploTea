@@ -13,7 +13,7 @@ from pathlib import Path
 
 import plotea
 
-plotea.set_log_level()
+plotea.init_logging()
 
 bm = plotea.BaseMap()
 fig, ax = bm.plot()

@@ -290,3 +290,7 @@ def resolve_bbox(bbox):
     if isinstance(bbox, str):
         return named_bbox(bbox)
     return Bbox(bbox)
+
+
+class Basins(Vector):
+    pass

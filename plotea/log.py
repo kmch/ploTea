@@ -15,10 +15,10 @@ Use it in every module as::
         def foo(self):
             _log.info('...')
 
-and switch it on once, from the notebook or script::
+It is switched on automatically at import (INFO); change the level with::
 
     import plotea
-    plotea.set_log_level()
+    plotea.init_logging(plotea.DEBUG)
 
 The call site is a bare module-level ``_log`` in both cases. Everything that
 makes ``Foo.foo`` print as ``Foo.foo`` rather than ``foo`` happens in a Filter
@@ -27,6 +27,7 @@ on the handler, so no class has to hold a logger of its own.
 """
 import logging
 import sys
+from logging import CRITICAL, DEBUG, ERROR, INFO, WARNING
 
 _FORMAT = '%(levelname)s:%(name)s:%(where)s: %(message)s'
 _ROOT_NAME = 'plotea'
@@ -44,13 +45,11 @@ class _QualNameFilter(logging.Filter):
     guarantees ``record.where`` always exists so ``_FORMAT`` cannot raise on a
     record emitted by third-party code.
 
-    The class name comes from ``code.co_qualname`` (python >= 3.11) on the
-    caller's frame, located by matching pathname and function name against the
-    record. Reading ``co_qualname`` rather than sniffing ``f_locals['self']``
-    means ``@staticmethod`` resolves correctly, which the self-sniffing approach
-    structurally cannot. The tradeoff: an inherited method reports the class that
-    DEFINED it, not the runtime class -- which is what you want when the point of
-    the prefix is to find the source.
+    The class name comes from the caller frame's ``self`` (or ``cls``), i.e. the
+    RUNTIME class, falling back to ``code.co_qualname`` for staticmethods and plain
+    functions. Reading the runtime class is deliberate: it survives IPython's
+    ``%autoreload``, which rewrites a reloaded method's ``co_qualname`` to
+    ``__autoreload_class__.method`` while leaving ``type(self)`` correct.
 
     The frame walk only runs once a record already exists, i.e. after
     ``isEnabledFor``, so suppressed DEBUG calls cost nothing.
@@ -76,7 +75,14 @@ class _QualNameFilter(logging.Filter):
         while frame is not None:
             code = frame.f_code
             if code.co_filename == record.pathname and code.co_name == record.funcName:
-                where = getattr(code, 'co_qualname', record.funcName)
+                obj = frame.f_locals.get('self')
+                cls = frame.f_locals.get('cls')
+                if obj is not None:
+                    where = f'{type(obj).__name__}.{record.funcName}'
+                elif isinstance(cls, type):
+                    where = f'{cls.__name__}.{record.funcName}'
+                else:
+                    where = getattr(code, 'co_qualname', record.funcName)
                 break
             frame = frame.f_back
         record.where = where
@@ -137,7 +143,7 @@ def get_logger(name: str) -> logging.Logger:
     ----------
     name : str
         Always ``__name__``. Gives 'plotea.maps.base' and friends, so log lines
-        say which module spoke and ``set_log_level`` can configure them as a group.
+        say which module spoke and ``init_logging`` can configure them as a group.
 
     Returns
     -------
@@ -152,14 +158,15 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-def set_log_level(level: int = logging.INFO) -> logging.Logger:
+def init_logging(level: int = INFO) -> logging.Logger:
     """
-    Switch plotea's logging on. Call once, from a notebook or script.
+    Turn plotea's logging on. Called once automatically on import; call again to change the level.
 
     Parameters
     ----------
-    level : int
-        ``logging.DEBUG``, ``logging.INFO`` (default), ``logging.WARNING``, ...
+    level : int, optional
+        ``DEBUG``, ``INFO`` (default), ``WARNING``, ``ERROR`` or ``CRITICAL`` --
+        the constants are exported from ``plotea`` for convenience.
 
     Returns
     -------
@@ -172,7 +179,8 @@ def set_log_level(level: int = logging.INFO) -> logging.Logger:
     rather than calling ``logging.basicConfig(force=True)`` on the root logger.
     Two reasons, both deliberate: ``force=True`` rips out any handler the host
     application installed, and leaving propagation on makes Jupyter's own root
-    handler print every message a second time.
+    handler print every message a second time. Because it touches only plotea's own
+    logger, it is safe to run automatically on import.
 
     Idempotent -- calling it twice replaces plotea's handler instead of stacking
     a second one, so repeated calls in a notebook cannot cause double printing.
@@ -180,7 +188,7 @@ def set_log_level(level: int = logging.INFO) -> logging.Logger:
     Examples
     --------
     >>> import plotea
-    >>> plotea.set_log_level()
+    >>> plotea.init_logging(plotea.DEBUG)   # already on at INFO; this raises verbosity
     >>> fig, ax = plotea.BaseMap().plot()
     INFO:plotea.maps.base:BaseMap.plot: whole world, EqualEarth, resolution 50m
 

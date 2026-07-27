@@ -6,7 +6,7 @@ import io
 import logging
 from contextlib import redirect_stdout
 
-from plotea.log import get_logger, set_log_level
+from plotea.log import get_logger, init_logging
 
 _log = get_logger('plotea.test_log')
 
@@ -78,7 +78,7 @@ def _capture(action):
     >>> 'method' in _capture(_Thing().method)
 
     """
-    set_log_level(logging.INFO)
+    init_logging(logging.INFO)
     buf = io.StringIO()
     with redirect_stdout(buf):
         action()
@@ -135,7 +135,7 @@ def test_lazy_stdout_capture():
     >>> test_lazy_stdout_capture()
 
     """
-    set_log_level(logging.INFO)
+    init_logging(logging.INFO)
     buf = io.StringIO()
     with redirect_stdout(buf):
         _log.info('captured lazily')
@@ -156,7 +156,7 @@ def test_no_double_print_with_root_handler():
     root_handler = logging.StreamHandler(sentinel)
     root.addHandler(root_handler)
     try:
-        set_log_level(logging.INFO)
+        init_logging(logging.INFO)
         buf = io.StringIO()
         with redirect_stdout(buf):
             _log.info('single')
@@ -168,13 +168,13 @@ def test_no_double_print_with_root_handler():
 
 def test_repeated_configuration_does_not_stack_handlers():
     """
-    Calling ``set_log_level`` twice replaces the handler rather than adding a second.
+    Calling ``init_logging`` twice replaces the handler rather than adding a second.
 
     Examples
     --------
     >>> test_repeated_configuration_does_not_stack_handlers()
 
     """
-    set_log_level(logging.INFO)
-    set_log_level(logging.INFO)
+    init_logging(logging.INFO)
+    init_logging(logging.INFO)
     assert len(logging.getLogger('plotea').handlers) == 1

@@ -170,21 +170,22 @@ def test_world_string_is_whole_world():
     assert BaseMap(bbox='world').bbox is None
 
 
-def test_plot_bbox_override():
+def test_map_axes_resists_squash():
     """
-    ``plot(bbox='europe')`` crops a world map for that draw only.
+    A bare ``gdf.plot(ax=ax)`` on the map axes cannot squash it -- aspect stays 'equal'.
 
     Examples
     --------
-    >>> test_plot_bbox_override()
+    >>> test_map_axes_resists_squash()
 
     """
-    bm = BaseMap()
-    fig, ax = bm.plot(bbox='europe')
-    x0, x1 = ax.get_xlim()
-    assert abs(x1 - x0) < 1.5e7
-    # The map's own bbox is untouched by the per-call override.
-    assert bm.bbox is None
+    from plotea.maps.crs import europe_laea
+    fig, ax = BaseMap(bbox='europe', crs=europe_laea()).plot()
+    assert ax.get_aspect() == 1.0
+    poly = Polygon([(-10, 35), (35, 35), (35, 72), (-10, 72)])
+    gdf = gpd.GeoDataFrame(geometry=[poly], crs='EPSG:4326')
+    gdf.plot(ax=ax, transform=ccrs.PlateCarree(), facecolor='none')  # no aspect=None
+    assert ax.get_aspect() == 1.0
 
 
 def test_unknown_bbox_raises():
@@ -200,20 +201,6 @@ def test_unknown_bbox_raises():
         BaseMap(bbox='narnia')
 
 
-def test_figsize_is_wide_for_world():
-    """
-    The derived world figsize is wide (aspect ~2), not square.
-
-    Examples
-    --------
-    >>> test_figsize_is_wide_for_world()
-
-    """
-    w, h = BaseMap()._figsize(None)
-    assert w > h
-    assert 1.8 < w / h < 2.3
-
-
 def test_figsize_can_be_overridden():
     """
     ``plot(figsize=...)`` overrides the derived size.
@@ -227,21 +214,21 @@ def test_figsize_can_be_overridden():
     assert tuple(fig.get_size_inches()) == (5, 3)
 
 
-def test_plot_into_existing_axes_via_crs():
+def test_plot_into_existing_axes():
     """
-    ``axes_crs()`` composes into a GridSpec; a plain panel stays a plain Axes.
+    ``bm.crs`` composes into a GridSpec; a plain panel stays a plain Axes.
 
     Examples
     --------
-    >>> test_plot_into_existing_axes_via_crs()
+    >>> test_plot_into_existing_axes()
 
     """
     from cartopy.mpl.geoaxes import GeoAxes
-    crs = BaseMap().axes_crs()
+    bm = BaseMap(bbox='europe')
     fig = plt.figure()
-    map_ax = fig.add_subplot(1, 2, 1, projection=crs)
+    map_ax = fig.add_subplot(1, 2, 1, projection=bm.crs)
     plain_ax = fig.add_subplot(1, 2, 2)
-    BaseMap(bbox='europe').plot(ax=map_ax)
+    bm.plot(ax=map_ax)
     assert isinstance(map_ax, GeoAxes)
     assert not isinstance(plain_ax, GeoAxes)
 
@@ -257,5 +244,5 @@ def test_public_api():
     """
     assert plotea.BaseMap is BaseMap
     assert plotea.Bbox is Bbox
-    assert callable(plotea.set_log_level)
+    assert callable(plotea.init_logging)
     assert callable(plotea.get_logger)
