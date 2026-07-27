@@ -1,14 +1,36 @@
 """
-``BaseMap`` -- a basemap specification. ``BaseMap()`` is the whole world with country outlines.
+``BaseMap`` -- the entry point for a map. Start here.
 
-Notes
------
-``BaseMap`` never owns the figure. ``plot(ax=...)`` draws into any axes, and
-``axes_crs()`` hands the CRS to any matplotlib axes factory (GridSpec,
-``add_axes``, ``subplots(subplot_kw=)``, insets) -- so several maps, or maps and
-plain panels, can share one figure.
+A ``BaseMap`` is a *specification*, not a drawing: constructing one only records
+your choices (the view, the projection, the style, which layers to show) and draws
+nothing. Cartopy runs only when you call ``plot()``, which creates the axes and
+paints the layers. That two-phase split -- resolve, then draw -- is why one
+``BaseMap`` can be drawn into several different figures.
 
-There is deliberately no ``BaseMap.add()``: you chain with ``gdf.plot(ax=ax)``.
+How the map subpackage fits together (each lower module knows nothing of the ones
+above it)::
+
+    BaseMap (this module)   the spec object + the .plot() entry point
+       | builds through
+    carto                   the cartopy backend: the axes classes + draw_basemap
+       | normalises its inputs with
+    crs      vector    basemap_styles    registry
+    (Crs)    (Bbox)    (BasemapStyle)    (ROIS: named boxes)
+
+The recurring idiom is *resolve at the edge*: every loose argument you pass
+(``'europe'``, ``'europe_laea'``, ``[-10, 35, 35, 72]``) is normalised exactly
+once, in ``__init__``, by that type's ``from_any`` classmethod -- ``Bbox.from_any``,
+``Crs.from_any``, ``BasemapStyle.from_any``. After construction the object holds
+only strict, resolved values, so the drawing code downstream never has to reason
+about a loose string again.
+
+``BaseMap`` never owns the figure. ``plot(ax=...)`` draws into any axes you hand
+it; ``plot()`` otherwise makes its own via ``carto.new_axes``. Either way the axes
+is a ``LonLatAxes`` (see ``plotea.maps.carto``), so several maps -- or maps and
+plain panels -- can share one figure through GridSpec, ``add_axes`` or insets.
+There is deliberately no ``BaseMap.add()``: you overlay your data with the native
+``gdf.plot(ax=ax)`` / ``ax.scatter(...)`` calls, which land correctly because the
+axes assumes lon/lat.
 
 """
 import matplotlib.pyplot as plt
@@ -46,6 +68,10 @@ class BaseMap:
 
     Notes
     -----
+    Two phases. Construction resolves each argument through the matching
+    ``from_any`` and stores the result, so ``__init__`` is pure bookkeeping and
+    draws nothing; ``plot`` is where the axes are created and the layers painted.
+
     ``plot`` returns a ``LonLatAxes`` (a cartopy ``GeoAxes`` subclass) on which
     untransformed data is assumed to be lon/lat degrees, so bare
     ``ax.scatter(lon, lat)`` and ``gdf.plot(ax=ax)`` land correctly on any
@@ -66,6 +92,14 @@ class BaseMap:
         land=True, ocean=True, coastline=True, borders=True, graticules=True) -> None:
         """
         Build a map specification. Draws nothing until ``plot`` is called.
+
+        Notes
+        -----
+        Each loose argument is normalised once here and then stored: ``bbox`` via
+        ``Bbox.from_any`` (the whole world becomes a ``Bbox.world()`` whose
+        ``extent`` is None), ``crs`` via ``Crs.from_any``, and ``style`` via
+        ``BasemapStyle.from_any``. The layer toggles and ``resolution`` are kept
+        as given. Nothing is drawn.
 
         Examples
         --------
@@ -100,10 +134,18 @@ class BaseMap:
         -------
         fig, ax
 
+        Notes
+        -----
+        Two paths. With ``ax`` given, the basemap is drawn into it (this is how
+        several maps share one figure); otherwise a figure and a ``LonLatAxes`` are
+        created via ``carto.new_axes``. Either way the layers are painted by
+        ``carto.draw_basemap``, and the resolved ``extent`` -- None for the whole
+        world -- selects ``set_global`` over ``set_extent``.
+
         Examples
         --------
         >>> fig, ax = BaseMap().plot()
-        >>> fig, ax = BaseMap().plot(bbox='europe')
+        >>> fig, ax = BaseMap(bbox='europe').plot()
         >>> fig, ax = BaseMap().plot(figsize=(6, 3))
 
         """

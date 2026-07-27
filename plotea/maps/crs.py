@@ -1,6 +1,11 @@
 """
 Coordinate reference systems (projections). The only place plotea names cartopy CRSs.
 
+In the ``BaseMap`` flow this module is the ``crs`` resolver: ``Crs.from_any`` turns
+a preset name, a live cartopy CRS or None into the cartopy CRS the axes projection
+needs. The preset *names* live here too, so a string like ``'europe_laea'`` never
+has to be spelt out as a cartopy constructor at the call site.
+
 Notes
 -----
 A LAEA world map would be a disc whose antipode smears round the rim, which is

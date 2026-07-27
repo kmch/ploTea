@@ -1,6 +1,10 @@
 """
 Basemap styles: fill colours and line weights for the map layers.
 
+In the ``BaseMap`` flow this module is the ``style`` resolver: ``BasemapStyle.from_any``
+turns a style name ('plain', 'muted'), an existing ``BasemapStyle`` or None into the
+record ``draw_basemap`` reads its colours and line widths from.
+
 Notes
 -----
 ``BasemapStyle`` is a frozen data record; ``BASEMAP_PLAIN`` and ``BASEMAP_MUTED``

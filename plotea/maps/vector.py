@@ -113,6 +113,15 @@ class Bbox:
     pad : float
         Fractional padding added to each side (0.1 = 10% of width/height).
 
+    Notes
+    -----
+    In the ``BaseMap`` flow a ``Bbox`` is the *view*: its ``extent`` -- in lon/lat
+    degrees, ordered the way cartopy's ``set_extent`` wants -- is what crops the
+    map, or None for the whole world. You rarely build one directly; ``BaseMap``
+    calls ``Bbox.from_any``, which accepts a name (a key of ``ROIS``), a raw box, a
+    geometry, an existing ``Bbox`` or None/'world', and always returns a ``Bbox`` --
+    the whole world being a ``Bbox.world()`` in the unbounded state.
+
     Examples
     --------
     >>> bbox = Bbox([-10, 35, 35, 72], target_crs=4326, pad=0.1)
