@@ -56,6 +56,8 @@ import functools
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import cartopy.io.shapereader as shpreader
+import numpy as np
 from cartopy.mpl.feature_artist import FeatureArtist
 from cartopy.mpl.geoaxes import GeoAxes
 from cartopy.mpl.gridliner import Gridliner
@@ -238,9 +240,9 @@ class _MapProjection:
         return LonLatAxes, {'projection': self.crs}
 
 
-def new_axes(fig, crs: ccrs.CRS):
+def new_axes(fig, crs: ccrs.CRS, spec=None, rect=None):
     """
-    Add and return a ``LonLatAxes`` for ``crs`` on ``fig``.
+    Add and return a ``LonLatAxes`` for ``crs`` on ``fig``: a subplot, a GridSpec cell, or an explicit rectangle.
 
     Parameters
     ----------
@@ -248,6 +250,13 @@ def new_axes(fig, crs: ccrs.CRS):
         Figure to add the axes to.
     crs : cartopy.crs.CRS
         The projection the map is drawn in.
+    spec : matplotlib.gridspec.SubplotSpec, optional
+        A GridSpec cell (e.g. ``fig.add_gridspec(1, 2)[0, 1]``) to place the axes
+        in. When None (and ``rect`` is None) the axes fills the figure as a subplot.
+    rect : sequence of float, optional
+        An explicit ``[left, bottom, width, height]`` in figure fractions. Used by
+        the mosaic to place equal-aspect panels exactly, so they align without the
+        drift a GridSpec cell allows. Takes precedence over ``spec``.
 
     Returns
     -------
@@ -261,18 +270,28 @@ def new_axes(fig, crs: ccrs.CRS):
     default subplot margins reserve room around the map so the gridline labels,
     which cartopy draws just outside the map boundary, are not clipped at the
     figure edge -- and without relying on ``bbox_inches='tight'`` at save time.
+    Passing ``spec`` is what lets several maps -- or maps and plain panels -- share
+    one figure, e.g. a Europe overview beside a country zoom.
 
     Examples
     --------
     >>> import matplotlib.pyplot as plt
-    >>> from plotea.maps.crs import equal_earth
+    >>> from plotea.maps.crs import equal_earth, laea_eu
     >>> ax = new_axes(plt.figure(), equal_earth())
+    >>> fig = plt.figure(); gs = fig.add_gridspec(1, 2)
+    >>> ax_left = new_axes(fig, equal_earth(), spec=gs[0, 0])
+    >>> ax_right = new_axes(fig, laea_eu(), spec=gs[0, 1])
 
     """
-    return fig.add_subplot(1, 1, 1, projection=_MapProjection(crs))
+    proj = _MapProjection(crs)
+    if rect is not None:
+        return fig.add_axes(rect, projection=proj)
+    if spec is None:
+        return fig.add_subplot(1, 1, 1, projection=proj)
+    return fig.add_subplot(spec, projection=proj)
 
 
-def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: bool = True, ocean: bool = True, coastline: bool = True, borders: bool = True, graticules: bool = True, resolution: str = '50m') -> None:
+def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: bool = True, ocean: bool = True, coastline: bool = True, borders: bool = True, graticules: bool = True, graticule_labels: bool = True, resolution: str = '50m') -> None:
     """
     Draw land, ocean, coastlines, country borders and graticules onto a map axes.
 
@@ -321,6 +340,74 @@ def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: boo
     if borders:
         ax.add_feature(cfeature.BORDERS.with_scale(resolution), edgecolor=style.border, linewidth=style.border_width, zorder=1)
     if graticules:
-        gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, linewidth=style.graticule_width, color=style.graticule, alpha=0.6, linestyle='--')
-        gl.top_labels = False
-        gl.right_labels = False
+        gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=graticule_labels, linewidth=style.graticule_width, color=style.graticule, alpha=0.6, linestyle='--')
+        if graticule_labels:
+            gl.top_labels = False
+            gl.right_labels = False
+
+
+def countries_shapefile(resolution: str = '50m') -> str:
+    """
+    Return the path to the Natural Earth ``admin_0_countries`` shapefile (country polygons).
+
+    Fetched and cached by cartopy exactly like the basemap layers, so the first
+    call at a given resolution reaches the network and every call after is offline.
+    This is a *different* file from the border lines ``draw_basemap`` uses
+    (``admin_0_boundary_lines_land``): those are outlines, this carries the filled
+    country polygons and their ISO attributes.
+
+    Parameters
+    ----------
+    resolution : str
+        Natural Earth resolution: '50m' (default), '110m' or '10m'.
+
+    Returns
+    -------
+    str
+        Filesystem path to the ``.shp``; read it with ``geopandas.read_file``.
+
+    Examples
+    --------
+    >>> import geopandas as gpd
+    >>> gdf = gpd.read_file(countries_shapefile('50m'))
+
+    """
+    return shpreader.natural_earth(resolution=resolution, category='cultural', name='admin_0_countries')
+
+
+def projected_aspect(extent, crs: ccrs.CRS) -> float:
+    """
+    Return the width/height ratio of a lon/lat ``extent`` once projected into ``crs``.
+
+    This is what a mosaic needs to size panels: a map axes is locked to equal
+    scaling, so its on-screen height is set by this ratio, not by the cell it sits
+    in. Boundary points are sampled (not just the corners) because meridians and
+    parallels curve under projection, so the projected bounding box is wider or
+    taller than the corners alone would suggest.
+
+    Parameters
+    ----------
+    extent : sequence of float
+        ``(lon_min, lon_max, lat_min, lat_max)`` in degrees (the ``Bbox.extent`` order).
+    crs : cartopy.crs.CRS
+        The projection the map is drawn in.
+
+    Returns
+    -------
+    float
+        Projected width divided by projected height.
+
+    Examples
+    --------
+    >>> from plotea.maps.crs import laea_eu
+    >>> projected_aspect((-4.762, 9.556, 41.384, 51.097), laea_eu())   # France, ~1.0
+
+    """
+    lon0, lon1, lat0, lat1 = extent
+    n = 25
+    edge = np.linspace(0.0, 1.0, n)
+    lons = np.concatenate([np.linspace(lon0, lon1, n), np.linspace(lon0, lon1, n), np.full(n, lon0), np.full(n, lon1)])
+    lats = np.concatenate([np.full(n, lat0), np.full(n, lat1), np.linspace(lat0, lat1, n), np.linspace(lat0, lat1, n)])
+    pts = crs.transform_points(ccrs.PlateCarree(), lons, lats)
+    x, y = pts[:, 0], pts[:, 1]
+    return float((x.max() - x.min()) / (y.max() - y.min()))

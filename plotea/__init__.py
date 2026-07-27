@@ -25,11 +25,14 @@ import numpy as np
 import pandas as pd
 
 from plotea.log import *
+from plotea.generic.scales import *
+from plotea.generic.labels import *
 from plotea.maps.crs import *
 from plotea.maps.registry import *
 from plotea.maps.vector import *
 from plotea.maps.styles import *
 from plotea.maps.carto import *
 from plotea.maps.base import *
+from plotea.maps.mosaic import *
 
 init_logging()

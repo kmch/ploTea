@@ -310,8 +310,8 @@ class Bbox:
         zoom_pad : float
             Fraction of width/height added around the box when zooming.
         **kwargs
-            Passed to the underlying GeoSeries plot. On a projected map axes pass
-            ``transform=ccrs.PlateCarree()`` here until the lon/lat axes lands.
+            Passed to the underlying GeoSeries plot. On a plotea ``LonLatAxes`` the
+            box (lon/lat degrees) needs no ``transform``; it lands correctly as-is.
 
         Returns
         -------
@@ -338,3 +338,101 @@ class Bbox:
 
 class Basins(Vector):
     pass
+
+
+class Country(Vector):
+    """
+    A country polygon (Natural Earth ``admin_0``) plus the ROI box for zooming to it.
+
+    ``Country('fr')`` carries two things a country panel needs: ``.bbox``, the
+    region-of-interest box from ``ROIS`` (the *view* extent, e.g. mainland France),
+    and ``.data``, the country's polygon -- lazily loaded from Natural Earth and
+    clipped to that ROI, so overseas territories and any globe-spanning geometry are
+    dropped before any downstream drawing, clipping or bounds computation.
+
+    Parameters
+    ----------
+    code : str
+        A country code that is both a key of ``ROIS`` (lower-case, e.g. 'fr') and,
+        upper-cased, the Natural Earth ``ISO_A2_EH`` code (e.g. 'FR').
+    resolution : str
+        Natural Earth resolution: '50m' (default), '110m' or '10m'.
+    clip : bool
+        Clip the polygon to the ROI box before storing it. True by default -- this
+        is what removes overseas territories.
+    pad : float
+        Fractional padding on the ROI box used *for clipping* (not for the view), so
+        the mainland outline is not shaved at the box edges while distant territories
+        are still cut.
+
+    Notes
+    -----
+    ``ISO_A2_EH``, not ``ISO_A2``: Natural Earth codes France and Norway as
+    ``ISO_A2 == '-99'`` (a sovereignty quirk); the ``_EH`` variant gives the
+    expected 'FR'/'NO'. ``.data`` is a one-row (single country) ``GeoDataFrame`` in
+    EPSG:4326; on a plotea ``LonLatAxes`` it draws with a bare ``.plot(ax=ax)``.
+
+    Examples
+    --------
+    >>> fr = Country('fr')
+    >>> fr.bbox.extent                       # mainland view extent, from ROIS
+    (-4.762, 9.556, 41.384, 51.097)
+    >>> ax = fr.data.plot(facecolor='none', edgecolor='k')   # mainland outline
+
+    """
+
+    def __init__(self, code: str, resolution: str = '50m', clip: bool = True, pad: float = 0.15) -> None:
+        """
+        Resolve the code to its ROI box; the polygon loads lazily on first ``.data`` access.
+
+        Examples
+        --------
+        >>> fr = Country('fr')
+
+        """
+        super().__init__()
+        self.roi = code.lower()
+        self.iso = code.upper()
+        self.resolution = resolution
+        self._clip = clip
+        self._pad = pad
+        self.bbox = Bbox.from_name(self.roi)
+
+    @property
+    def data(self) -> gpd.GeoDataFrame:
+        """
+        The country polygon, loaded from Natural Earth and clipped to the ROI, cached after first access.
+
+        Examples
+        --------
+        >>> Country('fr').data.shape[0]
+        1
+
+        """
+        if self._data is None:
+            self._data = self._load()
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = value
+
+    def _load(self) -> gpd.GeoDataFrame:
+        """
+        Read Natural Earth ``admin_0_countries``, select this country by ``ISO_A2_EH``, and clip to the ROI.
+
+        Examples
+        --------
+        >>> gdf = Country('fr')._load()
+
+        """
+        from plotea.maps import carto  # cartopy access stays in carto
+        gdf = gpd.read_file(carto.countries_shapefile(self.resolution))
+        sel = gdf[gdf['ISO_A2_EH'] == self.iso]
+        if sel.empty:
+            raise KeyError(f'no country with ISO_A2_EH == {self.iso!r} in Natural Earth admin_0_countries')
+        _log.info('%s: %d feature(s) selected', self.iso, len(sel))
+        if self._clip:
+            clip_box = Bbox.from_name(self.roi, pad=self._pad).bbox
+            sel = gpd.clip(sel, clip_box)
+        return sel.dissolve().reset_index(drop=True)

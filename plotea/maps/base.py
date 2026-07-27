@@ -89,7 +89,7 @@ class BaseMap:
     """
 
     def __init__(self, bbox=None, crs=None, style=None, resolution='50m', \
-        land=True, ocean=True, coastline=True, borders=True, graticules=True) -> None:
+        land=True, ocean=True, coastline=True, borders=True, graticules=True, graticule_labels=True) -> None:
         """
         Build a map specification. Draws nothing until ``plot`` is called.
 
@@ -122,9 +122,10 @@ class BaseMap:
         self.coastline = coastline
         self.borders = borders
         self.graticules = graticules
-        
+        self.graticule_labels = graticule_labels
 
-    def plot(self, ax=None, figsize=None):
+
+    def plot(self, ax=None, fig=None, spec=None, figsize=None):
         """
         Draw the basemap and return ``(fig, ax)``. Creates a figure and axes if ``ax`` is None.
 
@@ -132,6 +133,12 @@ class BaseMap:
         ----------
         ax : cartopy GeoAxes, optional
             Existing map axes to draw into. Created if None.
+        fig : matplotlib.figure.Figure, optional
+            Figure to add the axes to (with ``spec``) when ``ax`` is None. Created
+            if None.
+        spec : matplotlib.gridspec.SubplotSpec, optional
+            A GridSpec cell (e.g. ``fig.add_gridspec(1, 2)[0, 1]``) to place the map
+            in -- how you put a Europe overview beside a country zoom in one figure.
         figsize : tuple, optional
             Figure size in inches. When None and a new figure is created, a
             projection-aware size is derived from the view's aspect ratio.
@@ -143,27 +150,30 @@ class BaseMap:
         Notes
         -----
         Two paths. With ``ax`` given, the basemap is drawn into it (this is how
-        several maps share one figure); otherwise a figure and a ``LonLatAxes`` are
-        created via ``carto.new_axes``. Either way the layers are painted by
-        ``carto.draw_basemap``, and the resolved ``extent`` -- None for the whole
-        world -- selects ``set_global`` over ``set_extent``.
+        several maps share one figure); otherwise a ``LonLatAxes`` is created via
+        ``carto.new_axes`` -- in ``spec`` if given, else filling a fresh figure.
+        Either way the layers are painted by ``carto.draw_basemap``, and the
+        resolved ``extent`` -- None for the whole world -- selects ``set_global``
+        over ``set_extent``.
 
         Examples
         --------
         >>> fig, ax = BaseMap().plot()
         >>> fig, ax = BaseMap(bbox='eu').plot()
         >>> fig, ax = BaseMap().plot(figsize=(6, 3))
+        >>> f = plt.figure(); gs = f.add_gridspec(1, 2)
+        >>> _, ax_left = BaseMap(bbox='eu').plot(fig=f, spec=gs[0, 0])
 
         """
         if ax is None:
-            # figsize = DEFAULT_FIGSIZE if figsize is None else figsize
-            fig = plt.figure(figsize=figsize)
-            ax = carto.new_axes(fig, self.crs)
+            if fig is None:
+                fig = plt.figure(figsize=figsize)
+            ax = carto.new_axes(fig, self.crs, spec=spec)
         else:
             fig = ax.figure
 
         carto.draw_basemap(ax, extent=self.extent, resolution=self.resolution, style=self.style,\
-             land=self.land, ocean=self.ocean, coastline=self.coastline, borders=self.borders, graticules=self.graticules)
+             land=self.land, ocean=self.ocean, coastline=self.coastline, borders=self.borders, graticules=self.graticules, graticule_labels=self.graticule_labels)
         where = 'whole world' if self.extent is None else f'extent {self.extent}'
-        _log.info('%s, %s, resolution %s', where, type(self.crs).__name__, self.resolution)
+        _log.info('%s, %s, resolution %s', where, type(ax.projection).__name__, self.resolution)
         return fig, ax
