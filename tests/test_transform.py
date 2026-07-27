@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 
 from plotea.maps import carto
 from plotea.maps.carto import MapAxes, LonLatAxes, draw_basemap, new_axes, _TRANSFORM_METHODS
-from plotea.maps.crs import equal_earth, europe_laea
+from plotea.maps.crs import equal_earth, laea_eu
 
 LON = np.array([17.65, -9.14, 24.94])
 LAT = np.array([47.79, 38.72, 60.17])
@@ -73,14 +73,14 @@ def test_canary_decorated_set_unchanged():
     assert _decorated_methods() == set(_TRANSFORM_METHODS)
 
 
-@pytest.mark.parametrize('crs', [equal_earth(), europe_laea(), ccrs.Robinson()])
+@pytest.mark.parametrize('crs', [equal_earth(), laea_eu(), ccrs.Robinson()])
 def test_scatter_bare_matches_explicit(crs):
     """
     Bare ``scatter(lon, lat)`` lands where explicit ``transform=PlateCarree()`` lands, and not where stock GeoAxes puts it.
 
     Examples
     --------
-    >>> test_scatter_bare_matches_explicit(europe_laea())
+    >>> test_scatter_bare_matches_explicit(laea_eu())
 
     """
     ax = new_axes(plt.figure(), crs)
@@ -94,14 +94,14 @@ def test_scatter_bare_matches_explicit(crs):
     assert np.abs(bare - wrong).max() > 1.0  # the test can actually fail
 
 
-@pytest.mark.parametrize('crs', [equal_earth(), europe_laea()])
+@pytest.mark.parametrize('crs', [equal_earth(), laea_eu()])
 def test_polygon_bare_matches_explicit(crs):
     """
     A geopandas polygon (the ``add_collection`` path, hook 1) lands correctly with no transform.
 
     Examples
     --------
-    >>> test_polygon_bare_matches_explicit(europe_laea())
+    >>> test_polygon_bare_matches_explicit(laea_eu())
 
     """
     poly = gpd.GeoDataFrame(geometry=[Polygon([(2, 48), (10, 48), (10, 54), (2, 54)])], crs=4326)
@@ -122,7 +122,7 @@ def test_explicit_transform_wins():
     >>> test_explicit_transform_wins()
 
     """
-    ax = new_axes(plt.figure(), europe_laea())
+    ax = new_axes(plt.figure(), laea_eu())
     ax.set_extent([-10, 35, 35, 72], crs=ccrs.PlateCarree())
     x, y = 4321000.0, 3210000.0  # EPSG:3035 metres
     lon, lat = ccrs.PlateCarree().transform_point(x, y, ccrs.epsg(3035))
@@ -150,10 +150,10 @@ def test_data_crs_none_restores_stock():
 
     class _P:
         def _as_mpl_axes(self):
-            return _Stock, {'projection': europe_laea()}
+            return _Stock, {'projection': laea_eu()}
 
     ax = fig.add_subplot(1, 1, 1, projection=_P())
-    stock = plt.figure().add_subplot(projection=europe_laea())
+    stock = plt.figure().add_subplot(projection=laea_eu())
     pts = np.c_[LON, LAT]
     a = ax.scatter(LON, LAT).get_offset_transform().transform(pts)
     b = stock.scatter(LON, LAT).get_offset_transform().transform(pts)
@@ -174,7 +174,7 @@ def test_basemap_pixel_identity():
             self.cls = cls
 
         def _as_mpl_axes(self):
-            return self.cls, {'projection': europe_laea()}
+            return self.cls, {'projection': laea_eu()}
 
     def render(cls):
         fig = plt.figure(figsize=(6, 4))

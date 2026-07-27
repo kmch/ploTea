@@ -3,7 +3,7 @@ Coordinate reference systems (projections). The only place plotea names cartopy 
 
 In the ``BaseMap`` flow this module is the ``crs`` resolver: ``Crs.from_any`` turns
 a preset name, a live cartopy CRS or None into the cartopy CRS the axes projection
-needs. The preset *names* live here too, so a string like ``'europe_laea'`` never
+needs. The preset *names* live here too, so a string like ``'laea_eu'`` never
 has to be spelt out as a cartopy constructor at the call site.
 
 Notes
@@ -18,7 +18,7 @@ Greenland).
 - ``laea`` is Lambert Azimuthal Equal-Area, excellent for a single
 region because it is centred on that region; 
 
-- ``europe_laea`` is the Europe preset
+- ``laea_eu`` is the Europe preset
 (central_longitude=10, central_latitude=52).
 
 
@@ -70,7 +70,7 @@ def laea(lon: float, lat: float) -> ccrs.LambertAzimuthalEqualArea:
     return ccrs.LambertAzimuthalEqualArea(central_longitude=lon, central_latitude=lat)
 
 
-def europe_laea() -> ccrs.LambertAzimuthalEqualArea:
+def laea_eu() -> ccrs.LambertAzimuthalEqualArea:
     """
     Lambert Azimuthal Equal-Area centred on Europe (10 E, 52 N).
 
@@ -80,13 +80,13 @@ def europe_laea() -> ccrs.LambertAzimuthalEqualArea:
 
     Examples
     --------
-    >>> crs = europe_laea()
+    >>> crs = laea_eu()
 
     """
     return laea(10, 52)
 
 
-_CRS_PRESETS = {'equal_earth': equal_earth, 'europe_laea': europe_laea}
+_CRS_PRESETS = {'equal_earth': equal_earth, 'laea_eu': laea_eu}
 
 
 class Crs:
@@ -104,7 +104,7 @@ class Crs:
 
     Examples
     --------
-    >>> Crs.from_any('europe_laea')
+    >>> Crs.from_any('laea_eu')
     >>> Crs.from_any(None)              # -> Equal Earth, the world default
     >>> Crs.from_any(equal_earth())    # a live CRS passes through unchanged
 
@@ -118,7 +118,7 @@ class Crs:
         Parameters
         ----------
         crs : str or cartopy.crs.CRS or None
-            A key of the preset table ('equal_earth', 'europe_laea'); an existing
+            A key of the preset table ('equal_earth', 'laea_eu'); an existing
             cartopy CRS, returned unchanged; or None for the Equal Earth default.
 
         Returns

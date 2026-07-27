@@ -14,11 +14,11 @@ above it)::
        | builds through
     carto                   the cartopy backend: the axes classes + draw_basemap
        | normalises its inputs with
-    crs      vector    basemap_styles    registry
+    crs      vector    styles            registry
     (Crs)    (Bbox)    (BasemapStyle)    (ROIS: named boxes)
 
 The recurring idiom is *resolve at the edge*: every loose argument you pass
-(``'europe'``, ``'europe_laea'``, ``[-10, 35, 35, 72]``) is normalised exactly
+(``'eu'``, ``'laea_eu'``, ``[-10, 35, 35, 72]``) is normalised exactly
 once, in ``__init__``, by that type's ``from_any`` classmethod -- ``Bbox.from_any``,
 ``Crs.from_any``, ``BasemapStyle.from_any``. After construction the object holds
 only strict, resolved values, so the drawing code downstream never has to reason
@@ -37,7 +37,7 @@ import matplotlib.pyplot as plt
 
 from plotea.log import get_logger
 from plotea.maps import carto
-from plotea.maps.basemap_styles import BasemapStyle
+from plotea.maps.styles import BasemapStyle
 from plotea.maps.crs import Crs
 from plotea.maps.vector import Bbox
 
@@ -53,11 +53,11 @@ class BaseMap:
     Parameters
     ----------
     bbox : str or list or GeoDataFrame or GeoSeries or Bbox, optional
-        The view. A key of ``ROIS`` (e.g. 'europe'), a ``[minx, miny, maxx, maxy]``
+        The view. A key of ``ROIS`` (e.g. 'eu'), a ``[minx, miny, maxx, maxy]``
         box, a geometry, or a ``Bbox``. None (or 'world') is the whole world.
     crs : cartopy CRS, optional
         The map projection. Defaults to Equal Earth; pass any cartopy CRS to
-        override (e.g. ``crs=europe_laea()``).
+        override (e.g. ``crs=laea_eu()``).
     style : BasemapStyle, optional
         Fill colours and line widths. Defaults to ``BASEMAP_PLAIN``.
     land, ocean, coastline, borders, graticules : bool
@@ -83,8 +83,8 @@ class BaseMap:
     >>> import plotea
     >>> bm = plotea.BaseMap()
     >>> fig, ax = bm.plot()
-    >>> fig, ax = plotea.BaseMap(bbox='europe').plot()
-    >>> fig, ax = plotea.BaseMap(bbox='europe', crs=plotea.europe_laea()).plot()
+    >>> fig, ax = plotea.BaseMap(bbox='eu').plot()
+    >>> fig, ax = plotea.BaseMap(bbox='eu', crs=plotea.laea_eu()).plot()
 
     """
 
@@ -103,20 +103,26 @@ class BaseMap:
 
         Examples
         --------
-        >>> bm = BaseMap(bbox='europe', resolution='10m')
+        >>> bm = BaseMap(bbox='eu', resolution='10m')
         >>> bm = BaseMap(bbox=[-10, 35, 35, 72])
 
         """
+        # The three basic specs
         self.bbox = Bbox.from_any(bbox)
-        self.extent = self.bbox.extent
         self.crs = Crs.from_any(crs)
+        self.resolution = resolution # of the coastline and 
         self.style = BasemapStyle.from_any(style)
+        
+        # Derived attributes
+        self.extent = self.bbox.extent
+        
+        # Boolean 
         self.land = land
         self.ocean = ocean
         self.coastline = coastline
         self.borders = borders
         self.graticules = graticules
-        self.resolution = resolution
+        
 
     def plot(self, ax=None, figsize=None):
         """
@@ -145,7 +151,7 @@ class BaseMap:
         Examples
         --------
         >>> fig, ax = BaseMap().plot()
-        >>> fig, ax = BaseMap(bbox='europe').plot()
+        >>> fig, ax = BaseMap(bbox='eu').plot()
         >>> fig, ax = BaseMap().plot(figsize=(6, 3))
 
         """

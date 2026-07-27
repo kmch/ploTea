@@ -28,7 +28,7 @@ from plotea.log import *
 from plotea.maps.crs import *
 from plotea.maps.registry import *
 from plotea.maps.vector import *
-from plotea.maps.basemap_styles import *
+from plotea.maps.styles import *
 from plotea.maps.carto import *
 from plotea.maps.base import *
 

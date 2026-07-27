@@ -52,7 +52,7 @@ session and every subagent working in this repo.
 - `vector.py` — the `Vector` wrapper, the `Bbox` view (padded box from geometry,
   `.extent` for cartopy, `.plot` for the outline), and `resolve_bbox`/`named_bbox`.
 - `registry.py` — `ROIS`, named regions of interest a string bbox resolves to.
-- `basemap_styles.py` — `BasemapStyle` and the ready-made styles.
+- `styles.py` — `BasemapStyle` and the ready-made styles.
 - `carto.py` — the cartopy backend: `new_axes`, `draw_basemap`.
 - `base.py` — `BaseMap`.
 

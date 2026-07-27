@@ -11,7 +11,7 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import Polygon
 
-from plotea.maps.basemap_styles import BASEMAP_MUTED, BASEMAP_PLAIN, BasemapStyle
+from plotea.maps.styles import BASEMAP_MUTED, BASEMAP_PLAIN, BasemapStyle
 from plotea.maps.crs import Crs, equal_earth
 from plotea.maps.vector import Bbox
 
@@ -26,7 +26,7 @@ def test_crs_from_any():
 
     """
     assert isinstance(Crs.from_any(None), ccrs.EqualEarth)
-    assert isinstance(Crs.from_any('europe_laea'), ccrs.LambertAzimuthalEqualArea)
+    assert isinstance(Crs.from_any('laea_eu'), ccrs.LambertAzimuthalEqualArea)
     live = ccrs.Robinson()
     assert Crs.from_any(live) is live
     with pytest.raises(KeyError):
@@ -47,7 +47,7 @@ def test_bbox_from_any_always_returns_bbox():
     assert Bbox.from_any(None).is_world
     assert Bbox.from_any('world').is_world
     assert Bbox.from_any(None).extent is None
-    assert Bbox.from_any('europe').extent == (-10.0, 35.0, 35.0, 72.0)
+    assert Bbox.from_any('eu').extent == (-10.0, 35.0, 35.0, 72.0)
     assert Bbox.from_any([-10, 35, 35, 72]).extent == (-10.0, 35.0, 35.0, 72.0)
     existing = Bbox([-5, 40, 5, 50], target_crs=4326)
     assert Bbox.from_any(existing) is existing

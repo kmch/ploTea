@@ -166,7 +166,7 @@ class Bbox:
 
         Examples
         --------
-        >>> Bbox.from_any('europe').extent
+        >>> Bbox.from_any('eu').extent
         (-10.0, 35.0, 35.0, 72.0)
         >>> Bbox.from_any(None).is_world
         True
@@ -211,7 +211,7 @@ class Bbox:
         Parameters
         ----------
         name : str
-            A key of ``ROIS`` (e.g. 'europe', 'pl').
+            A key of ``ROIS`` (e.g. 'eu', 'pl').
         pad : float
             Fractional padding added to each side.
 
@@ -226,7 +226,7 @@ class Bbox:
 
         Examples
         --------
-        >>> Bbox.from_name('europe').extent
+        >>> Bbox.from_name('eu').extent
         (-10.0, 35.0, 35.0, 72.0)
 
         """

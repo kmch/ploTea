@@ -1,27 +1,19 @@
 """
 The cartopy backend: create map axes and draw the basemap. The only file importing cartopy.
 
-Why ``LonLatAxes`` exists -- degrees vs metres
-----------------------------------------------
+Notes
+-----
 A coordinate reference system (CRS) can be *geographic* or *projected*, and the
-difference decides what the numbers you plot actually mean:
+difference decides what the numbers you plot actually mean.
 
-- A **geographic** CRS (e.g. EPSG:4326) stores coordinates as **longitude and
-  latitude in degrees**. A point is ``(17.65, 47.79)``.
-- A **projected** CRS (e.g. Lambert Azimuthal Equal-Area, Web Mercator, any UTM
-  zone) stores coordinates as **x/y in metres** on a flat plane, produced by
-  running lon/lat through a projection formula. The *same* point becomes
-  ``(572366, -438535)`` -- about 572 km east and 439 km south of the LAEA centre
-  at (10 E, 52 N).
+A **geographic** CRS (e.g. EPSG:4326) stores coordinates as **longitude and latitude 
+in degrees**. A point is ``(17.65, 47.79)``.
+On the other hand, a **projected** CRS (e.g. Lambert Azimuthal Equal-Area, or LAEA for short) stores coordinates 
+as **x/y in metres**. The *same* point becomes ``(572366, -438535)`` -- about 572 km east and 439 km 
+south of the LAEA centre at (10 E, 52 N).
 
-The trap: a projected CRS is *defined* with reference to lon/lat (LAEA's centre is
-"10 E, 52 N"), so it looks like it "uses" degrees. It does not. That reference
-frame is how the projection is anchored to the globe; the coordinate *values* a
-projected axes works in are metres. The degree ticks you see on a map are a
-separate graticule overlay drawn on top by ``ax.gridlines`` purely for the reader
--- ``ax.get_xlim()`` on a projected map returns metres, not degrees, and the
-tell-tale sign is that the meridians/parallels are *curved*, not a straight
-rectangular grid.
+Note, the degree ticks you see on a map are a separate graticule overlay drawn on top by ``ax.gridlines`` purely for the reader -- the coordinate *values* a
+projected axes works in are still in metres, e.g. ``ax.get_xlim()`` on a projected map returns metres.
 
 Consequence for plotting: a cartopy ``GeoAxes`` treats untransformed data as being
 in its own projected (metre) coordinates. So ``ax.scatter(lon, lat)`` with lon/lat
@@ -29,8 +21,9 @@ in its own projected (metre) coordinates. So ``ax.scatter(lon, lat)`` with lon/l
 collapses into an invisible speck near the projection origin. No error, no
 warning: a silently wrong map. The fix is ``transform=ccrs.PlateCarree()``, which
 tells cartopy "these numbers are lon/lat degrees; you reproject them to metres".
-(``PlateCarree`` is cartopy's stand-in for raw lon/lat because in PlateCarree
-x = lon and y = lat literally.)
+
+Note, ``PlateCarree`` is cartopy's stand-in for raw lon/lat because in PlateCarree
+x = lon and y = lat literally.
 
 ``LonLatAxes`` flips that default: on it, untransformed data is *assumed* to be
 lon/lat, so bare ``ax.scatter(lon, lat)`` and ``gdf.plot(ax=ax)`` land correctly on
@@ -68,7 +61,7 @@ from cartopy.mpl.geoaxes import GeoAxes
 from cartopy.mpl.gridliner import Gridliner
 
 from plotea.log import get_logger
-from plotea.maps.basemap_styles import BASEMAP_PLAIN, BasemapStyle
+from plotea.maps.styles import BASEMAP_PLAIN, BasemapStyle
 
 _log = get_logger(__name__)
 
@@ -153,7 +146,7 @@ class LonLatAxes(MapAxes):
 
     Examples
     --------
-    >>> ax = new_axes(plt.figure(), europe_laea())
+    >>> ax = new_axes(plt.figure(), laea_eu())
     >>> type(ax).__name__
     'LonLatAxes'
     >>> _ = ax.scatter([17.65], [47.79])            # lon/lat, no transform needed
@@ -307,10 +300,10 @@ def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: boo
     Examples
     --------
     >>> import matplotlib.pyplot as plt
-    >>> from plotea.maps.crs import equal_earth, europe_laea
+    >>> from plotea.maps.crs import equal_earth, laea_eu
     >>> ax = new_axes(plt.figure(), equal_earth())
     >>> draw_basemap(ax)                             # whole world
-    >>> ax = new_axes(plt.figure(), europe_laea())
+    >>> ax = new_axes(plt.figure(), laea_eu())
     >>> draw_basemap(ax, extent=[-10, 35, 35, 72])   # Europe
 
     """

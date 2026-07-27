@@ -84,14 +84,14 @@ def test_default_map_has_country_borders():
 
 def test_bbox_by_name():
     """
-    ``BaseMap(bbox='europe')`` resolves the name to a ``Bbox`` and crops the view.
+    ``BaseMap(bbox='eu')`` resolves the name to a ``Bbox`` and crops the view.
 
     Examples
     --------
     >>> test_bbox_by_name()
 
     """
-    bm = BaseMap(bbox='europe')
+    bm = BaseMap(bbox='eu')
     assert isinstance(bm.bbox, Bbox)
     assert bm.bbox.extent == (-10.0, 35.0, 35.0, 72.0)
     fig, ax = bm.plot()
@@ -153,8 +153,8 @@ def test_crs_override():
     >>> test_crs_override()
 
     """
-    from plotea.maps.crs import europe_laea
-    fig, ax = BaseMap(bbox='europe', crs=europe_laea()).plot()
+    from plotea.maps.crs import laea_eu
+    fig, ax = BaseMap(bbox='eu', crs=laea_eu()).plot()
     assert isinstance(ax.projection, ccrs.LambertAzimuthalEqualArea)
 
 
@@ -180,8 +180,8 @@ def test_map_axes_resists_squash():
     >>> test_map_axes_resists_squash()
 
     """
-    from plotea.maps.crs import europe_laea
-    fig, ax = BaseMap(bbox='europe', crs=europe_laea()).plot()
+    from plotea.maps.crs import laea_eu
+    fig, ax = BaseMap(bbox='eu', crs=laea_eu()).plot()
     assert ax.get_aspect() == 1.0
     poly = Polygon([(-10, 35), (35, 35), (35, 72), (-10, 72)])
     gdf = gpd.GeoDataFrame(geometry=[poly], crs='EPSG:4326')
@@ -225,7 +225,7 @@ def test_plot_into_existing_axes():
 
     """
     from cartopy.mpl.geoaxes import GeoAxes
-    bm = BaseMap(bbox='europe')
+    bm = BaseMap(bbox='eu')
     fig = plt.figure()
     map_ax = fig.add_subplot(1, 2, 1, projection=bm.crs)
     plain_ax = fig.add_subplot(1, 2, 2)
