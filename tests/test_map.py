@@ -63,7 +63,7 @@ def test_default_map_is_equal_earth_world():
     y0, y1 = ax.get_ylim()
     assert x1 > 17e6 and abs(x0) > 17e6
     assert y1 > 8e6 and abs(y0) > 8e6
-    assert BaseMap().bbox is None
+    assert BaseMap().bbox.is_world
 
 
 def test_default_map_has_country_borders():
@@ -167,7 +167,8 @@ def test_world_string_is_whole_world():
     >>> test_world_string_is_whole_world()
 
     """
-    assert BaseMap(bbox='world').bbox is None
+    assert BaseMap(bbox='world').bbox.is_world
+    assert BaseMap(bbox='world').extent is None
 
 
 def test_map_axes_resists_squash():

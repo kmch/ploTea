@@ -84,39 +84,63 @@ def europe_laea() -> ccrs.LambertAzimuthalEqualArea:
 _CRS_PRESETS = {'equal_earth': equal_earth, 'europe_laea': europe_laea}
 
 
-def resolve_crs(crs: str | ccrs.CRS | None) -> ccrs.CRS:
+class Crs:
     """
-    Return the CRS for a preset name ('equal_earth', 'europe_laea').
+    Factory namespace: ``Crs.from_any(...)`` coerces loose input into a cartopy CRS.
 
-    Parameters
-    ----------
-    name : str
-        A key of the CRS preset table.
-
-    Returns
-    -------
-    cartopy.crs.CRS
-
-    Raises
-    ------
-    KeyError
-        If ``name`` is not a known preset.
+    Notes
+    -----
+    ``Crs`` is never instantiated -- it only groups the ``from_any`` coercion with
+    the projection presets, so every plotea value type is reached through the same
+    ``from_any`` verb. It deliberately returns a bare cartopy ``ccrs.CRS`` rather
+    than a plotea wrapper: the axes projection, ``transform=`` and ``to_crs`` all
+    speak cartopy/pyproj CRSs directly, so wrapping would only force unwrapping at
+    every call site. This is the one ``from_any`` whose return type is foreign.
 
     Examples
     --------
-    >>> crs = resolve_crs('equal_earth')
+    >>> Crs.from_any('europe_laea')
+    >>> Crs.from_any(None)              # -> Equal Earth, the world default
+    >>> Crs.from_any(equal_earth())    # a live CRS passes through unchanged
 
     """
-    if crs is None:
-        return equal_earth()
-    if isinstance(crs, ccrs.CRS):
-        return crs
-    if isinstance(crs, str):
-        try:
-            factory = _CRS_PRESETS[crs]
-        except KeyError:
-            known = ', '.join(sorted(_CRS_PRESETS))
-            raise KeyError(f'unknown CRS preset {crs!r}; known presets: {known}') from None
-        return factory()
-    
-    raise TypeError(f'unknown CRS type {type(crs).__name__}')
+
+    @classmethod
+    def from_any(cls, crs: str | ccrs.CRS | None) -> ccrs.CRS:
+        """
+        Coerce a preset name, a live cartopy CRS, or None into a cartopy CRS.
+
+        Parameters
+        ----------
+        crs : str or cartopy.crs.CRS or None
+            A key of the preset table ('equal_earth', 'europe_laea'); an existing
+            cartopy CRS, returned unchanged; or None for the Equal Earth default.
+
+        Returns
+        -------
+        cartopy.crs.CRS
+
+        Raises
+        ------
+        KeyError
+            If ``crs`` is an unknown preset name.
+        TypeError
+            If ``crs`` is not a string, a cartopy CRS, or None.
+
+        Examples
+        --------
+        >>> Crs.from_any('equal_earth')
+
+        """
+        if crs is None:
+            return equal_earth()
+        if isinstance(crs, ccrs.CRS):
+            return crs
+        if isinstance(crs, str):
+            try:
+                factory = _CRS_PRESETS[crs]
+            except KeyError:
+                known = ', '.join(sorted(_CRS_PRESETS))
+                raise KeyError(f'unknown CRS preset {crs!r}; known presets: {known}') from None
+            return factory()
+        raise TypeError(f'unknown CRS type {type(crs).__name__}')

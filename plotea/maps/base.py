@@ -15,9 +15,9 @@ import matplotlib.pyplot as plt
 
 from plotea.log import get_logger
 from plotea.maps import carto
-from plotea.maps.basemap_styles import BASEMAP_PLAIN
-from plotea.maps.crs import equal_earth, resolve_crs
-from plotea.maps.vector import resolve_bbox
+from plotea.maps.basemap_styles import BasemapStyle
+from plotea.maps.crs import Crs
+from plotea.maps.vector import Bbox
 
 _log = get_logger(__name__)
 
@@ -73,10 +73,10 @@ class BaseMap:
         >>> bm = BaseMap(bbox=[-10, 35, 35, 72])
 
         """
-        self.bbox = resolve_bbox(bbox)
-        self.extent = self.bbox.extent if self.bbox is not None else None
-        self.crs = resolve_crs(crs)
-        self.style = style if style is not None else BASEMAP_PLAIN
+        self.bbox = Bbox.from_any(bbox)
+        self.extent = self.bbox.extent
+        self.crs = Crs.from_any(crs)
+        self.style = BasemapStyle.from_any(style)
         self.land = land
         self.ocean = ocean
         self.coastline = coastline

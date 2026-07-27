@@ -5,9 +5,10 @@ Notes
 -----
 A ``Bbox`` is a padded bounding box derived from geometry; in a map it is what
 sets the axes extent (its ``extent`` property is the tuple cartopy's
-``set_extent`` wants). ``resolve_bbox`` turns a name (a key of ``ROIS``), a raw
-box, a geometry or an existing ``Bbox`` into a ``Bbox`` -- and ``None`` or 'world'
-into the whole world.
+``set_extent`` wants, or None for the whole world). ``Bbox.from_any`` turns a name
+(a key of ``ROIS``), a raw box, a geometry, an existing ``Bbox``, or None/'world'
+into a ``Bbox`` -- the whole world being a ``Bbox.world()`` in the unbounded state,
+not a ``None``.
 
 """
 from pathlib import Path
@@ -130,8 +131,102 @@ class Bbox:
 
         """
         self.bbox = None
+        self.is_world = False
         if geometry is not None:
             self._build(geometry, target_crs=target_crs, pad=pad)
+
+    @classmethod
+    def from_any(cls, bbox) -> 'Bbox':
+        """
+        Coerce a name, a raw box, a geometry, an existing ``Bbox`` or None/'world' into a ``Bbox``.
+
+        This is the single entry point ``BaseMap`` uses to normalise its ``bbox``
+        argument; it always returns a ``Bbox`` (the whole world is a ``Bbox`` in the
+        unbounded state, not ``None``).
+
+        Parameters
+        ----------
+        bbox : str or list or GeoDataFrame or GeoSeries or Bbox or None
+            A key of ``ROIS``; the name 'world' or None for the whole world; a
+            ``[minx, miny, maxx, maxy]`` box; a geometry; or an existing ``Bbox``
+            (returned unchanged).
+
+        Returns
+        -------
+        Bbox
+
+        Examples
+        --------
+        >>> Bbox.from_any('europe').extent
+        (-10.0, 35.0, 35.0, 72.0)
+        >>> Bbox.from_any(None).is_world
+        True
+        >>> Bbox.from_any('world').is_world
+        True
+
+        """
+        if bbox is None:
+            return cls.world()
+        if isinstance(bbox, Bbox):
+            return bbox
+        if isinstance(bbox, str):
+            return cls.world() if bbox == 'world' else cls.from_name(bbox)
+        return cls(bbox)
+
+    @classmethod
+    def world(cls) -> 'Bbox':
+        """
+        The whole-world view: an unbounded ``Bbox`` whose ``extent`` is None.
+
+        Notes
+        -----
+        A ``None`` extent is the signal ``BaseMap``/cartopy read as "draw the whole
+        globe" (``set_global``), so the world is a first-class ``Bbox`` state rather
+        than a ``None`` special case threaded through the call sites.
+
+        Examples
+        --------
+        >>> Bbox.world().extent is None
+        True
+
+        """
+        box = cls()
+        box.is_world = True
+        return box
+
+    @classmethod
+    def from_name(cls, name: str, pad: float = 0.0) -> 'Bbox':
+        """
+        Build a ``Bbox`` from a named region of interest in ``ROIS``.
+
+        Parameters
+        ----------
+        name : str
+            A key of ``ROIS`` (e.g. 'europe', 'pl').
+        pad : float
+            Fractional padding added to each side.
+
+        Returns
+        -------
+        Bbox
+
+        Raises
+        ------
+        KeyError
+            If ``name`` is not a known region.
+
+        Examples
+        --------
+        >>> Bbox.from_name('europe').extent
+        (-10.0, 35.0, 35.0, 72.0)
+
+        """
+        try:
+            bounds = ROIS[name]
+        except KeyError:
+            known = ', '.join(sorted(ROIS))
+            raise KeyError(f'unknown bbox {name!r}; known bboxes: {known}') from None
+        return cls(list(bounds), target_crs=4326, pad=pad)
 
     def _build(self, geometry, target_crs, pad: float) -> None:
         """
@@ -159,20 +254,26 @@ class Bbox:
     @property
     def extent(self):
         """
-        The box as ``(xmin, xmax, ymin, ymax)`` in lon/lat degrees, for cartopy's ``set_extent``.
+        The box as ``(xmin, xmax, ymin, ymax)`` in lon/lat degrees, or None for the whole world.
 
         Notes
         -----
-        Reprojected to lon/lat when the box carries a CRS; a box with no CRS is
-        assumed to be lon/lat already. The order matches ``set_extent`` (x first,
-        then y), not GeoPandas' ``total_bounds`` (which interleaves them).
+        None -- the whole-world signal ``cartopy``'s ``set_global`` wants -- is
+        returned for a ``Bbox.world()``. Otherwise the box is reprojected to lon/lat
+        when it carries a CRS (a box with no CRS is assumed lon/lat already), and the
+        order matches ``set_extent`` (x first, then y), not GeoPandas' ``total_bounds``
+        (which interleaves them).
 
         Examples
         --------
         >>> Bbox([-10, 35, 35, 72], target_crs=4326).extent
         (-10.0, 35.0, 35.0, 72.0)
+        >>> Bbox.world().extent is None
+        True
 
         """
+        if self.is_world:
+            return None
         if self.bbox is None:
             raise ValueError('Bbox not built yet.')
         gs = self.bbox
@@ -224,72 +325,6 @@ class Bbox:
             ax.set_xlim(minx - w * zoom_pad, maxx + w * zoom_pad)
             ax.set_ylim(miny - h * zoom_pad, maxy + h * zoom_pad)
         return ax
-
-
-def named_bbox(name: str) -> Bbox:
-    """
-    Build a ``Bbox`` from a named region of interest in ``ROIS``.
-
-    Parameters
-    ----------
-    name : str
-        A key of ``ROIS`` (e.g. 'europe', 'pl').
-
-    Returns
-    -------
-    Bbox
-
-    Raises
-    ------
-    KeyError
-        If ``name`` is not a known region.
-
-    Examples
-    --------
-    >>> named_bbox('europe').extent
-    (-10.0, 35.0, 35.0, 72.0)
-
-    """
-    try:
-        bounds = ROIS[name]
-    except KeyError:
-        known = ', '.join(sorted(ROIS))
-        raise KeyError(f'unknown bbox {name!r}; known bboxes: {known}') from None
-    return Bbox(list(bounds), target_crs=4326)
-
-
-def resolve_bbox(bbox):
-    """
-    Turn a name, a raw box, a geometry, a ``Bbox`` or ``None`` into a ``Bbox`` (or ``None``).
-
-    Parameters
-    ----------
-    bbox : str or list or GeoDataFrame or GeoSeries or Bbox or None
-        A key of ``ROIS``; the name 'world' or ``None`` for the whole world; a
-        ``[minx, miny, maxx, maxy]`` box; a geometry; or an existing ``Bbox``.
-
-    Returns
-    -------
-    Bbox or None
-        ``None`` means the whole world (drawn with ``set_global``).
-
-    Examples
-    --------
-    >>> resolve_bbox('europe').extent
-    (-10.0, 35.0, 35.0, 72.0)
-    >>> resolve_bbox(None) is None
-    True
-    >>> resolve_bbox('world') is None
-    True
-
-    """
-    if bbox is None or bbox == 'world':
-        return None
-    if isinstance(bbox, Bbox):
-        return bbox
-    if isinstance(bbox, str):
-        return named_bbox(bbox)
-    return Bbox(bbox)
 
 
 class Basins(Vector):

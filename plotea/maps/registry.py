@@ -6,8 +6,8 @@ Notes
 Each entry is ``(minx, miny, maxx, maxy)`` in lon/lat degrees (EPSG:4326), 
 i.e. ``(lon_min, lat_min, lon_max, lat_max)``.
 
- ``resolve_bbox`` (in ``maps.vector``)
-turns a key of this table into a ``Bbox``.
+ ``Bbox.from_any`` / ``Bbox.from_name`` (in ``maps.vector``)
+turn a key of this table into a ``Bbox``.
 
 """
 from plotea.log import get_logger
