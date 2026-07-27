@@ -46,9 +46,11 @@ class BaseMap:
 
     Notes
     -----
-    This increment returns a stock cartopy ``GeoAxes``. The ``LonLatAxes`` subclass
-    that lets bare ``gdf.plot(ax=ax)`` land correctly on any projection arrives in
-    the next increment and does not change this API.
+    ``plot`` returns a ``LonLatAxes`` (a cartopy ``GeoAxes`` subclass) on which
+    untransformed data is assumed to be lon/lat degrees, so bare
+    ``ax.scatter(lon, lat)`` and ``gdf.plot(ax=ax)`` land correctly on any
+    projection without a per-call ``transform=``. An explicit ``transform=`` always
+    wins. See ``plotea.maps.carto`` for the degrees-vs-metres explanation.
 
     Examples
     --------

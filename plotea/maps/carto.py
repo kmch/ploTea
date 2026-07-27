@@ -1,13 +1,46 @@
 """
 The cartopy backend: create map axes and draw the basemap. The only file importing cartopy.
 
+Why ``LonLatAxes`` exists -- degrees vs metres
+----------------------------------------------
+A coordinate reference system (CRS) can be *geographic* or *projected*, and the
+difference decides what the numbers you plot actually mean:
+
+- A **geographic** CRS (e.g. EPSG:4326) stores coordinates as **longitude and
+  latitude in degrees**. A point is ``(17.65, 47.79)``.
+- A **projected** CRS (e.g. Lambert Azimuthal Equal-Area, Web Mercator, any UTM
+  zone) stores coordinates as **x/y in metres** on a flat plane, produced by
+  running lon/lat through a projection formula. The *same* point becomes
+  ``(572366, -438535)`` -- about 572 km east and 439 km south of the LAEA centre
+  at (10 E, 52 N).
+
+The trap: a projected CRS is *defined* with reference to lon/lat (LAEA's centre is
+"10 E, 52 N"), so it looks like it "uses" degrees. It does not. That reference
+frame is how the projection is anchored to the globe; the coordinate *values* a
+projected axes works in are metres. The degree ticks you see on a map are a
+separate graticule overlay drawn on top by ``ax.gridlines`` purely for the reader
+-- ``ax.get_xlim()`` on a projected map returns metres, not degrees, and the
+tell-tale sign is that the meridians/parallels are *curved*, not a straight
+rectangular grid.
+
+Consequence for plotting: a cartopy ``GeoAxes`` treats untransformed data as being
+in its own projected (metre) coordinates. So ``ax.scatter(lon, lat)`` with lon/lat
+*degrees* and no ``transform`` is read as "x metres, y metres" -- every point
+collapses into an invisible speck near the projection origin. No error, no
+warning: a silently wrong map. The fix is ``transform=ccrs.PlateCarree()``, which
+tells cartopy "these numbers are lon/lat degrees; you reproject them to metres".
+(``PlateCarree`` is cartopy's stand-in for raw lon/lat because in PlateCarree
+x = lon and y = lat literally.)
+
+``LonLatAxes`` flips that default: on it, untransformed data is *assumed* to be
+lon/lat, so bare ``ax.scatter(lon, lat)`` and ``gdf.plot(ax=ax)`` land correctly on
+any projection without a per-call ``transform=``. See the class for the mechanism
+and for why three separate hooks are irreducible. An explicit ``transform=`` always
+wins, so the fast idiom ``gdf.to_crs(ax.projection).plot(ax=ax,
+transform=ax.projection)`` is unaffected.
+
 Notes
 -----
-This increment draws the basemap onto a stock cartopy ``GeoAxes``. The
-``LonLatAxes`` subclass that makes bare ``gdf.plot(ax=ax)`` land correctly on any
-projection is added in the next increment; swapping the axes class is internal to
-``new_axes`` and invisible to ``BaseMap``.
-
 ``resolution='50m'`` is deliberate, not cartopy's ``'110m'`` default: the 50m
 land/ocean/coastline/border layers are cached locally and render offline, whereas
 the 110m ocean and coastline may be absent and would trigger a download.
@@ -26,14 +59,30 @@ where nothing is downloaded yet -- run ``cartopy_feature_download physical cultu
 which fetches all resolutions of both themes in one go.
 
 """
+import functools
+
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+from cartopy.mpl.feature_artist import FeatureArtist
 from cartopy.mpl.geoaxes import GeoAxes
+from cartopy.mpl.gridliner import Gridliner
 
 from plotea.log import get_logger
 from plotea.maps.basemap_styles import BASEMAP_PLAIN, BasemapStyle
 
 _log = get_logger(__name__)
+
+# The lon/lat CRS that untransformed data is assumed to be in (see LonLatAxes).
+LONLAT = ccrs.PlateCarree()
+
+# cartopy's own artists reproject from their own .crs internally; stamping the
+# lon/lat transform on them double-transforms and silently corrupts the basemap.
+_SKIP = (FeatureArtist, Gridliner)
+
+# The GeoAxes methods cartopy wraps to default transform -> self.projection (metres).
+# Verified against cartopy 0.25.0; a change here is silent misplacement, so the
+# canary test in tests/test_transform.py pins this exact set.
+_TRANSFORM_METHODS = ('imshow', 'contour', 'contourf', 'scatter', 'annotate', 'hexbin', 'pcolormesh', 'pcolor', 'quiver', 'barbs', 'streamplot')
 
 
 class MapAxes(GeoAxes):
@@ -71,14 +120,107 @@ class MapAxes(GeoAxes):
         return super().set_aspect('equal', *args, **kwargs)
 
 
+class LonLatAxes(MapAxes):
+    """
+    A map axes on which untransformed data is assumed to be lon/lat degrees.
+
+    On a stock cartopy ``GeoAxes`` a plotting call with no ``transform`` is read in
+    the axes' own projected (metre) coordinates, so ``ax.scatter(lon, lat)`` with
+    degrees is silently misplaced. ``LonLatAxes`` flips that default to
+    ``PlateCarree`` (raw lon/lat), so ``ax.scatter(lon, lat)`` and bare
+    ``gdf.plot(ax=ax)`` land correctly on any projection. See the module docstring
+    for the degrees-vs-metres explanation.
+
+    Notes
+    -----
+    Three disjoint hooks are needed because there is no single choke point:
+
+    1. ``_set_artist_props`` -- the collection/patch/line path (geopandas lines and
+       polygons via ``add_collection``, a ``Rectangle`` via ``add_patch``). These
+       artists are not decorated by cartopy; matplotlib would stamp ``transData``
+       (metres), so we stamp lon/lat instead when no transform is set.
+    2. cartopy's decorated methods (``_TRANSFORM_METHODS``) -- points via
+       ``scatter`` and rasters via ``pcolormesh`` reach the axes already
+       transform-set, so hook 1 is blind to them; we inject the default before
+       cartopy reads it.
+    3. ``text`` -- matplotlib's ``text`` sets ``transform=transData`` *explicitly*,
+       so ``is_transform_set()`` is already True and hook 1 cannot see it.
+
+    ``_SKIP`` protects cartopy's own ``FeatureArtist`` and ``Gridliner`` (the
+    basemap and graticule), which reproject from their own CRS internally.
+    An explicit ``transform=`` always wins; set the class attribute
+    ``data_crs = None`` (via a subclass) to fall back to stock cartopy behaviour.
+
+    Examples
+    --------
+    >>> ax = new_axes(plt.figure(), europe_laea())
+    >>> type(ax).__name__
+    'LonLatAxes'
+    >>> _ = ax.scatter([17.65], [47.79])            # lon/lat, no transform needed
+
+    """
+
+    data_crs = LONLAT
+
+    def _set_artist_props(self, a):
+        """
+        Stamp the lon/lat transform on an untransformed non-cartopy artist (hook 1).
+
+        Examples
+        --------
+        >>> # called by add_collection / add_patch / add_line, not directly
+
+        """
+        if self.data_crs is not None and not isinstance(a, _SKIP) and not a.is_transform_set():
+            a.set_transform(self.data_crs)
+        super()._set_artist_props(a)
+
+    def text(self, *args, **kwargs):
+        """
+        Default ``text`` to lon/lat coordinates (hook 3).
+
+        Examples
+        --------
+        >>> _ = ax.text(17.65, 47.79, 'Bratislava')     # placed by lon/lat
+
+        """
+        if self.data_crs is not None and 'transform' not in kwargs:
+            kwargs['transform'] = self.data_crs
+        return super().text(*args, **kwargs)
+
+
+def _make_lonlat_method(name):
+    """
+    Build a ``LonLatAxes`` override of a cartopy-decorated method that defaults its transform to lon/lat (hook 2).
+
+    Examples
+    --------
+    >>> LonLatAxes.scatter = _make_lonlat_method('scatter')
+
+    """
+    parent = getattr(GeoAxes, name)
+
+    @functools.wraps(parent)
+    def method(self, *args, **kwargs):
+        if self.data_crs is not None and kwargs.get('transform', None) is None:
+            kwargs['transform'] = self.data_crs
+        return parent(self, *args, **kwargs)
+
+    return method
+
+
+for _name in _TRANSFORM_METHODS:
+    setattr(LonLatAxes, _name, _make_lonlat_method(_name))
+
+
 class _MapProjection:
     """
-    Adapter so ``add_subplot(projection=...)`` builds a ``MapAxes`` for a given CRS.
+    Adapter so ``add_subplot(projection=...)`` builds a ``LonLatAxes`` for a given CRS.
 
     Notes
     -----
     matplotlib calls ``_as_mpl_axes`` on any non-string projection to learn which
-    axes class and kwargs to use; this returns ``MapAxes`` instead of the stock
+    axes class and kwargs to use; this returns ``LonLatAxes`` instead of the stock
     ``GeoAxes`` cartopy's CRS would give.
 
     Examples
@@ -92,20 +234,20 @@ class _MapProjection:
 
     def _as_mpl_axes(self):
         """
-        Return ``(MapAxes, kwargs)`` for matplotlib's projection machinery.
+        Return ``(LonLatAxes, kwargs)`` for matplotlib's projection machinery.
 
         Examples
         --------
         >>> _MapProjection(equal_earth())._as_mpl_axes()[0].__name__
-        'MapAxes'
+        'LonLatAxes'
 
         """
-        return MapAxes, {'projection': self.crs}
+        return LonLatAxes, {'projection': self.crs}
 
 
 def new_axes(fig, crs: ccrs.CRS):
     """
-    Add and return a ``MapAxes`` for ``crs`` on ``fig``.
+    Add and return a ``LonLatAxes`` for ``crs`` on ``fig``.
 
     Parameters
     ----------
@@ -116,8 +258,9 @@ def new_axes(fig, crs: ccrs.CRS):
 
     Returns
     -------
-    MapAxes
-        A GeoAxes subclass whose aspect is locked to 'equal'.
+    LonLatAxes
+        A GeoAxes subclass whose aspect is locked to 'equal' and on which
+        untransformed data is assumed to be lon/lat.
 
     Notes
     -----
