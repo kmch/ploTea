@@ -422,3 +422,42 @@ def projected_aspect(extent, crs: ccrs.CRS) -> float:
     lon0, lon1, lat0, lat1 = extent
     minx, miny, maxx, maxy = crs.project_geometry(_box(lon0, lat0, lon1, lat1), ccrs.PlateCarree()).bounds
     return float((maxx - minx) / (maxy - miny))
+
+
+def visible_bbox(ax):
+    """
+    Return the lon/lat ``Bbox`` actually shown in a projected map axes.
+
+    A map panel is a rectangle in *projected* (metre) space, which back-projects to a
+    *curved* lon/lat region reaching well beyond the lon/lat view box -- e.g. an
+    Equal-Earth/LAEA Europe panel shows land far east and, in its corners, Iceland
+    and Greenland. Reading rivers, a DEM, etc. to this box (instead of the view box)
+    lets them fill the panel; the axes then clips them exactly at the frame, so
+    nothing looks cut off mid-map.
+
+    Parameters
+    ----------
+    ax : cartopy GeoAxes
+        A map axes whose extent has been set (its projected x/y limits are read).
+
+    Returns
+    -------
+    Bbox
+        The lon/lat bounding box of the visible rectangle (EPSG:4326).
+
+    Notes
+    -----
+    Computed with ``project_geometry`` (the same densified projection ``set_extent``
+    uses), so the box tightly bounds the true curved footprint.
+
+    Examples
+    --------
+    >>> HydroRivers(path, bbox=visible_bbox(ax)).plot(ax=ax)   # rivers fill the panel
+    >>> dem, dx, dy = read_dem(src, visible_bbox(ax).extent)   # DEM covers it, no white corners
+
+    """
+    from plotea.maps.vector import Bbox
+    x0, x1 = ax.get_xlim()
+    y0, y1 = ax.get_ylim()
+    lonmin, latmin, lonmax, latmax = ccrs.PlateCarree().project_geometry(_box(x0, y0, x1, y1), ax.projection).bounds
+    return Bbox([lonmin, latmin, lonmax, latmax], target_crs=4326)

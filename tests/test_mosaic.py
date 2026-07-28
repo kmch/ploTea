@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from plotea.generic.labels import panel_label
 from plotea.generic.scales import discrete, discrete_colorbar
 from plotea.maps.base import BaseMap
-from plotea.maps.carto import projected_aspect
+from plotea.maps.carto import projected_aspect, visible_bbox
 from plotea.maps.crs import laea_eu
 from plotea.maps.mosaic import panel_mosaic
 from plotea.maps.vector import Bbox
@@ -103,6 +103,22 @@ def test_panel_mosaic_shape_and_placement():
     for row in zooms:
         for ax in row:
             assert ax.get_position().x0 >= main_right - 1e-6
+
+
+def test_visible_bbox_contains_view():
+    """
+    ``visible_bbox`` returns the true lon/lat footprint, strictly larger than the view box.
+
+    Examples
+    --------
+    >>> test_visible_bbox_contains_view()
+
+    """
+    _, ax = BaseMap(bbox='eu', crs='laea_eu').plot()
+    lo0, lo1, la0, la1 = visible_bbox(ax).extent
+    vlo0, vlo1, vla0, vla1 = Bbox.from_any('eu').extent
+    # the projected rectangle bulges beyond the lon/lat box on every side
+    assert lo0 < vlo0 and lo1 > vlo1 and la0 < vla0 and la1 > vla1
 
 
 def test_panel_mosaic_top_alignment():
