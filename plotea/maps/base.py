@@ -89,7 +89,7 @@ class BaseMap:
     """
 
     def __init__(self, bbox=None, crs=None, style=None, resolution='50m', \
-        land=True, ocean=True, coastline=True, borders=True, graticules=True, graticule_labels=True, graticule_step=None) -> None:
+        land=True, ocean=True, coastline=True, borders=True, graticules=True, graticule_labels=True, graticule_step=None, graticule_inward=False) -> None:
         """
         Build a map specification. Draws nothing until ``plot`` is called.
 
@@ -124,6 +124,7 @@ class BaseMap:
         self.graticules = graticules
         self.graticule_labels = graticule_labels
         self.graticule_step = graticule_step
+        self.graticule_inward = graticule_inward
 
 
     def plot(self, ax=None, fig=None, spec=None, figsize=None):
@@ -174,7 +175,7 @@ class BaseMap:
             fig = ax.figure
 
         carto.draw_basemap(ax, extent=self.extent, resolution=self.resolution, style=self.style,\
-             land=self.land, ocean=self.ocean, coastline=self.coastline, borders=self.borders, graticules=self.graticules, graticule_labels=self.graticule_labels, graticule_step=self.graticule_step)
+             land=self.land, ocean=self.ocean, coastline=self.coastline, borders=self.borders, graticules=self.graticules, graticule_labels=self.graticule_labels, graticule_step=self.graticule_step, graticule_inward=self.graticule_inward)
         where = 'whole world' if self.extent is None else f'extent {self.extent}'
         _log.info('%s, %s, resolution %s', where, type(ax.projection).__name__, self.resolution)
         return fig, ax

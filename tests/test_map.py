@@ -93,7 +93,7 @@ def test_bbox_by_name():
     """
     bm = BaseMap(bbox='eu')
     assert isinstance(bm.bbox, Bbox)
-    assert bm.bbox.extent == (-10.0, 35.0, 35.0, 72.0)
+    assert bm.bbox.extent == (-10.0, 30.0, 35.0, 72.0)
     fig, ax = bm.plot()
     # Default projection is Equal Earth; the view is a small window, not the globe.
     assert isinstance(ax.projection, ccrs.EqualEarth)

@@ -436,3 +436,196 @@ class Country(Vector):
             clip_box = Bbox.from_name(self.roi, pad=self._pad).bbox
             sel = gpd.clip(sel, clip_box)
         return sel.dissolve().reset_index(drop=True)
+
+
+def _read_bbox(bbox):
+    """
+    Turn a ``Bbox.from_any`` input into the ``(minx, miny, maxx, maxy)`` tuple GeoPandas reads with.
+
+    Examples
+    --------
+    >>> _read_bbox('fr')
+    (-4.762, 41.384, 9.556, 51.097)
+
+    """
+    if bbox is None:
+        return None
+    xmin, xmax, ymin, ymax = Bbox.from_any(bbox).extent
+    return (xmin, ymin, xmax, ymax)
+
+
+class Streams(Vector):
+    """
+    A stream / river line network -- a ``Vector`` whose ``plot`` draws lines.
+
+    Notes
+    -----
+    A thin base over ``Vector`` that only fixes line-appropriate plot defaults
+    (a blue hairline); subclasses such as ``HydroRivers`` add dataset knowledge.
+
+    Examples
+    --------
+    >>> Streams(data=rivers_gdf).plot(ax=ax, linewidth=0.6)
+
+    """
+
+    _PLOT = dict(color='#4b8fbf', linewidth=0.4)
+
+    def plot(self, ax=None, **kwargs):
+        """
+        Draw the streams as lines; keyword args override the blue-hairline defaults.
+
+        Examples
+        --------
+        >>> streams.plot(ax=ax, color='steelblue', linewidth=0.8)
+
+        """
+        if self.data is None:
+            raise ValueError('No data to plot.')
+        return self.data.plot(ax=ax, **{**self._PLOT, **kwargs})
+
+
+class HydroRivers(Streams):
+    """
+    The HydroRIVERS network, read filtered to the major rivers of a view.
+
+    Only reaches with upstream catchment area >= ``min_upland`` (km2) within
+    ``bbox`` are read, via an attribute + spatial filter at read time, so the
+    ~1e6-feature file loads in a moment. Upstream area is chosen over discharge
+    because it grows monotonically downstream, so the kept network stays *connected*
+    to the sea -- a discharge threshold instead severs low-flow main stems in arid
+    regions and leaves tributaries dangling. The schema also carries ``DIS_AV_CMS``
+    (mean discharge), ``ORD_FLOW`` (1-10, lower = larger) and ``ORD_STRA``.
+
+    Parameters
+    ----------
+    path : str or Path
+        The HydroRIVERS ``.gdb`` (or any HydroRIVERS-schema file).
+    min_upland : float or None
+        Keep reaches with ``UPLAND_SKM >= min_upland``; None keeps all (slow).
+    bbox : str or Bbox or geometry, optional
+        Anything ``Bbox.from_any`` accepts (e.g. 'fr'); only rivers intersecting it
+        are read.
+
+    Examples
+    --------
+    >>> HydroRivers(path, min_upland=5000, bbox='fr').plot(ax=ax)
+
+    """
+
+    def __init__(self, path, min_upland: float = 1000.0, bbox=None) -> None:
+        """
+        Store the read filters; the network loads lazily on first ``.data`` access.
+
+        Examples
+        --------
+        >>> rivers = HydroRivers(path, min_upland=20000, bbox='eu')
+
+        """
+        super().__init__(path=path)
+        self.min_upland = min_upland
+        self._bbox = bbox
+
+    @property
+    def data(self) -> gpd.GeoDataFrame:
+        """
+        The filtered river lines, read once and cached.
+
+        Examples
+        --------
+        >>> HydroRivers(path, bbox='fr').data.crs
+        <Geographic 2D CRS: EPSG:4326>
+
+        """
+        if self._data is None:
+            where = None if self.min_upland is None else f'UPLAND_SKM >= {self.min_upland}'
+            self._data = gpd.read_file(self.path, where=where, bbox=_read_bbox(self._bbox))
+            _log.info('%d river reaches (upland >= %s km2)', len(self._data), self.min_upland)
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = value
+
+
+class Lakes(Vector):
+    """
+    Lake polygons -- a ``Vector`` whose ``plot`` fills the water bodies.
+
+    Examples
+    --------
+    >>> Lakes(data=lakes_gdf).plot(ax=ax)
+
+    """
+
+    _PLOT = dict(facecolor='#cfe1f2', edgecolor='none')
+
+    def plot(self, ax=None, **kwargs):
+        """
+        Draw the lakes as filled polygons; keyword args override the pale-blue defaults.
+
+        Examples
+        --------
+        >>> lakes.plot(ax=ax, facecolor='#d6e6f2')
+
+        """
+        if self.data is None:
+            raise ValueError('No data to plot.')
+        return self.data.plot(ax=ax, **{**self._PLOT, **kwargs})
+
+
+class HydroLakes(Lakes):
+    """
+    The HydroLAKES polygons, read filtered to the larger lakes of a view.
+
+    Only lakes with ``Lake_area >= min_area`` (km2) within ``bbox`` are read, so the
+    global ~1.4e6-feature file loads quickly.
+
+    Parameters
+    ----------
+    path : str or Path
+        The HydroLAKES ``.gdb`` (or any HydroLAKES-schema file).
+    min_area : float or None
+        Keep lakes with ``Lake_area >= min_area`` km2; None keeps all (slow).
+    bbox : str or Bbox or geometry, optional
+        Anything ``Bbox.from_any`` accepts; only lakes intersecting it are read.
+
+    Examples
+    --------
+    >>> HydroLakes(path, min_area=50, bbox='fr').plot(ax=ax)
+
+    """
+
+    def __init__(self, path, min_area: float = 10.0, bbox=None) -> None:
+        """
+        Store the read filters; the lakes load lazily on first ``.data`` access.
+
+        Examples
+        --------
+        >>> lakes = HydroLakes(path, min_area=100, bbox='eu')
+
+        """
+        super().__init__(path=path)
+        self.min_area = min_area
+        self._bbox = bbox
+
+    @property
+    def data(self) -> gpd.GeoDataFrame:
+        """
+        The filtered lake polygons, read once and cached.
+
+        Examples
+        --------
+        >>> HydroLakes(path, bbox='fr').data.crs
+        <Geographic 2D CRS: EPSG:4326>
+
+        """
+        if self._data is None:
+            where = None if self.min_area is None else f'Lake_area >= {self.min_area}'
+            self._data = gpd.read_file(self.path, where=where, bbox=_read_bbox(self._bbox))
+            _log.info('%d lakes (area >= %s km2)', len(self._data), self.min_area)
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = value

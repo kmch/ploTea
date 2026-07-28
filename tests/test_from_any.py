@@ -47,7 +47,7 @@ def test_bbox_from_any_always_returns_bbox():
     assert Bbox.from_any(None).is_world
     assert Bbox.from_any('world').is_world
     assert Bbox.from_any(None).extent is None
-    assert Bbox.from_any('eu').extent == (-10.0, 35.0, 35.0, 72.0)
+    assert Bbox.from_any('eu').extent == (-10.0, 30.0, 35.0, 72.0)
     assert Bbox.from_any([-10, 35, 35, 72]).extent == (-10.0, 35.0, 35.0, 72.0)
     existing = Bbox([-5, 40, 5, 50], target_crs=4326)
     assert Bbox.from_any(existing) is existing

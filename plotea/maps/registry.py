@@ -17,7 +17,7 @@ _log = get_logger(__name__)
 
 # (minx, miny, maxx, maxy) = (lon_min, lat_min, lon_max, lat_max) in degrees.
 ROIS = {
-    'eu'          : (-10.000, 35.000, 35.000, 72.000),
+    'eu'          : (-10.000, 35.000, 30.000, 72.000),
     'eu_wide'     : (-15.000, 35.000, 35.000, 72.000),
     'iberia'      : (-9.479, 36.025, 4.322, 43.764),    # Spain + Portugal (mainland)
     

@@ -27,6 +27,7 @@ import pandas as pd
 from plotea.log import *
 from plotea.generic.scales import *
 from plotea.generic.labels import *
+from plotea.generic.scalebar import *
 from plotea.maps.crs import *
 from plotea.maps.registry import *
 from plotea.maps.vector import *

@@ -297,7 +297,7 @@ def new_axes(fig, crs: ccrs.CRS, spec=None, rect=None):
     return fig.add_subplot(spec, projection=proj)
 
 
-def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: bool = True, ocean: bool = True, coastline: bool = True, borders: bool = True, graticules: bool = True, graticule_labels: bool = True, graticule_step=None, resolution: str = '50m') -> None:
+def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: bool = True, ocean: bool = True, coastline: bool = True, borders: bool = True, graticules: bool = True, graticule_labels: bool = True, graticule_step=None, graticule_inward: bool = False, resolution: str = '50m') -> None:
     """
     Draw land, ocean, coastlines, country borders and graticules onto a map axes.
 
@@ -353,6 +353,13 @@ def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: boo
         if graticule_labels:
             gl.top_labels = False
             gl.right_labels = False
+            if graticule_inward:
+                # Negative padding pulls the labels inside the frame, so on abutting
+                # mosaic panels they do not stick out and collide with the neighbour.
+                gl.xpadding = -12
+                gl.ypadding = -12
+                gl.xlabel_style = {'va': 'top', 'color': style.graticule}
+                gl.ylabel_style = {'ha': 'left', 'color': style.graticule}
 
 
 def countries_shapefile(resolution: str = '50m') -> str:
