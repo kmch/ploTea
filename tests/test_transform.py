@@ -160,6 +160,29 @@ def test_data_crs_none_restores_stock():
     assert np.abs(a - b).max() < 1e-6
 
 
+def test_imshow_lands_projected():
+    """
+    Bare ``imshow`` on ``LonLatAxes`` warps to projected coords like stock cartopy -- not stamped off-map.
+
+    Regression: hook 1 must skip the ``AxesImage``; otherwise the projected metres
+    are read as degrees and the raster lands far off the map (invisible).
+
+    Examples
+    --------
+    >>> test_imshow_lands_projected()
+
+    """
+    arr = np.arange(60 * 80, dtype=float).reshape(60, 80)
+    ext = [-4.762, 9.556, 41.384, 51.097]
+    ax = new_axes(plt.figure(), laea_eu())
+    im = ax.imshow(arr, extent=ext, origin='upper')                    # bare, transform injected
+    ref = plt.figure().add_subplot(projection=laea_eu())
+    imref = ref.imshow(arr, extent=ext, origin='upper', transform=ccrs.PlateCarree())
+    # both warped into projected metres, so the placements coincide and are far from degrees
+    assert np.allclose(im.get_extent(), imref.get_extent(), rtol=1e-6)
+    assert max(abs(v) for v in im.get_extent()) > 1e5
+
+
 def test_basemap_pixel_identity():
     """
     The cartopy-drawn basemap is byte-identical on ``LonLatAxes`` and plain ``MapAxes`` -- ``_SKIP`` protects it.

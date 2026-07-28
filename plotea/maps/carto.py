@@ -61,6 +61,7 @@ import numpy as np
 from cartopy.mpl.feature_artist import FeatureArtist
 from cartopy.mpl.geoaxes import GeoAxes
 from cartopy.mpl.gridliner import Gridliner
+from matplotlib.image import AxesImage
 
 from plotea.log import get_logger
 from plotea.maps.styles import BASEMAP_PLAIN, BasemapStyle
@@ -70,9 +71,13 @@ _log = get_logger(__name__)
 # The lon/lat CRS that untransformed data is assumed to be in (see LonLatAxes).
 LONLAT = ccrs.PlateCarree()
 
-# cartopy's own artists reproject from their own .crs internally; stamping the
-# lon/lat transform on them double-transforms and silently corrupts the basemap.
-_SKIP = (FeatureArtist, Gridliner)
+# Artists hook 1 must NOT stamp the lon/lat transform on:
+# - FeatureArtist / Gridliner reproject from their own .crs; stamping double-transforms
+#   and silently corrupts the basemap.
+# - AxesImage from imshow: cartopy's decorated imshow already warps the array into the
+#   axes projection and needs transData; stamping PlateCarree instead reads the projected
+#   metres as degrees and the image lands off-map (invisible). imshow is handled by hook 2.
+_SKIP = (FeatureArtist, Gridliner, AxesImage)
 
 # The GeoAxes methods cartopy wraps to default transform -> self.projection (metres).
 # Verified against cartopy 0.25.0; a change here is silent misplacement, so the

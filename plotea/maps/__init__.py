@@ -9,3 +9,4 @@ from plotea.maps.crs import *
 from plotea.maps.registry import *
 from plotea.maps.vector import *
 from plotea.maps.mosaic import *
+from plotea.maps.raster import *
