@@ -57,11 +57,12 @@ import functools
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import cartopy.io.shapereader as shpreader
-import numpy as np
+import matplotlib.ticker as mticker
 from cartopy.mpl.feature_artist import FeatureArtist
 from cartopy.mpl.geoaxes import GeoAxes
 from cartopy.mpl.gridliner import Gridliner
 from matplotlib.image import AxesImage
+from shapely.geometry import box as _box
 
 from plotea.log import get_logger
 from plotea.maps.styles import BASEMAP_PLAIN, BasemapStyle
@@ -296,7 +297,7 @@ def new_axes(fig, crs: ccrs.CRS, spec=None, rect=None):
     return fig.add_subplot(spec, projection=proj)
 
 
-def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: bool = True, ocean: bool = True, coastline: bool = True, borders: bool = True, graticules: bool = True, graticule_labels: bool = True, resolution: str = '50m') -> None:
+def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: bool = True, ocean: bool = True, coastline: bool = True, borders: bool = True, graticules: bool = True, graticule_labels: bool = True, graticule_step=None, resolution: str = '50m') -> None:
     """
     Draw land, ocean, coastlines, country borders and graticules onto a map axes.
 
@@ -346,6 +347,9 @@ def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: boo
         ax.add_feature(cfeature.BORDERS.with_scale(resolution), edgecolor=style.border, linewidth=style.border_width, zorder=1)
     if graticules:
         gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=graticule_labels, linewidth=style.graticule_width, color=style.graticule, alpha=0.6, linestyle='--')
+        if graticule_step is not None:
+            gl.xlocator = mticker.MultipleLocator(graticule_step)
+            gl.ylocator = mticker.MultipleLocator(graticule_step)
         if graticule_labels:
             gl.top_labels = False
             gl.right_labels = False
@@ -386,9 +390,9 @@ def projected_aspect(extent, crs: ccrs.CRS) -> float:
 
     This is what a mosaic needs to size panels: a map axes is locked to equal
     scaling, so its on-screen height is set by this ratio, not by the cell it sits
-    in. Boundary points are sampled (not just the corners) because meridians and
-    parallels curve under projection, so the projected bounding box is wider or
-    taller than the corners alone would suggest.
+    in. The lon/lat box is projected with ``project_geometry`` -- the exact call
+    cartopy's ``set_extent`` uses -- so the aspect matches the rendered axes to
+    machine precision and equal-aspect panels tile without shrinking out of line.
 
     Parameters
     ----------
@@ -409,10 +413,5 @@ def projected_aspect(extent, crs: ccrs.CRS) -> float:
 
     """
     lon0, lon1, lat0, lat1 = extent
-    n = 25
-    edge = np.linspace(0.0, 1.0, n)
-    lons = np.concatenate([np.linspace(lon0, lon1, n), np.linspace(lon0, lon1, n), np.full(n, lon0), np.full(n, lon1)])
-    lats = np.concatenate([np.full(n, lat0), np.full(n, lat1), np.linspace(lat0, lat1, n), np.linspace(lat0, lat1, n)])
-    pts = crs.transform_points(ccrs.PlateCarree(), lons, lats)
-    x, y = pts[:, 0], pts[:, 1]
-    return float((x.max() - x.min()) / (y.max() - y.min()))
+    minx, miny, maxx, maxy = crs.project_geometry(_box(lon0, lat0, lon1, lat1), ccrs.PlateCarree()).bounds
+    return float((maxx - minx) / (maxy - miny))
