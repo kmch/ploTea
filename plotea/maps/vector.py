@@ -496,11 +496,18 @@ class Streams(Vector):
         """
         if self.data is None:
             raise ValueError('No data to plot.')
-        if width_by is not None and width_by in self.data:
-            v = np.log10(np.asarray(self.data[width_by], dtype=float).clip(1.0))
+        data = self.data
+        if width_by is not None and width_by in data:
+            v = np.log10(np.asarray(data[width_by], dtype=float).clip(1.0))
             lo, hi = float(v.min()), float(v.max())
             kwargs['linewidth'] = width_range[0] if hi <= lo else np.interp(v, (lo, hi), width_range)
-        return self.data.plot(ax=ax, **{**self._PLOT, **kwargs})
+        # Reproject to the axes CRS once and draw in it, so cartopy skips its slow
+        # per-vertex reprojection of every reach (a dense network: minutes -> seconds).
+        proj = getattr(ax, 'projection', None)
+        if proj is not None and data.crs is not None and 'transform' not in kwargs:
+            data = data.to_crs(proj)
+            kwargs['transform'] = proj
+        return data.plot(ax=ax, **{**self._PLOT, **kwargs})
 
 
 class HydroRivers(Streams):

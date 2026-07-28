@@ -297,6 +297,47 @@ def new_axes(fig, crs: ccrs.CRS, spec=None, rect=None):
     return fig.add_subplot(spec, projection=proj)
 
 
+def draw_ocean(ax, resolution: str = '50m', color: str = '#cfe1f2', zorder: float = 1.0) -> None:
+    """
+    Fill the ocean (Natural Earth) at a chosen ``zorder`` -- e.g. above a DEM hillshade.
+
+    A hydrologically-conditioned DEM often leaves estuaries and tidal reaches as
+    low *land* rather than nodata, so a DEM-only "coast" shows no water there and
+    rivers appear to end on grey ground. Drawing the vector ocean on top restores
+    the water so rivers flow into it; keep the DEM below for land relief.
+
+    Parameters
+    ----------
+    ax : cartopy GeoAxes
+        Axes to draw into.
+    resolution : str
+        Natural Earth resolution: '10m' (finest coast), '50m' or '110m'.
+    color : str
+        Ocean fill colour.
+    zorder : float
+        Draw order; put it above the DEM (e.g. 0.5) and below the data.
+
+    Examples
+    --------
+    >>> draw_ocean(ax, resolution='10m', color='#cfe1f2', zorder=1)
+
+    """
+    import geopandas as gpd
+    from shapely.geometry import box as _sbox
+
+    from plotea.maps.vector import _read_bbox
+    path = shpreader.natural_earth(resolution=resolution, category='physical', name='ocean')
+    # Clip the ocean to the panel and reproject only that, rather than letting cartopy
+    # reproject the whole global ocean polygon per panel (seconds vs a minute at 10m).
+    # The clip is essential: the ocean is a single global feature, so a bbox *read*
+    # returns it whole, and reprojecting a global polygon to a regional CRS degenerates
+    # into a shape that floods the panel.
+    b = _read_bbox(visible_bbox(ax))
+    gdf = gpd.clip(gpd.read_file(path, bbox=b), _sbox(*b))
+    if len(gdf):
+        gdf.to_crs(ax.projection).plot(ax=ax, facecolor=color, edgecolor='none', transform=ax.projection, zorder=zorder)
+
+
 def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: bool = True, ocean: bool = True, coastline: bool = True, borders: bool = True, graticules: bool = True, graticule_labels: bool = True, graticule_step=None, graticule_inward: bool = False, resolution: str = '50m') -> None:
     """
     Draw land, ocean, coastlines, country borders and graticules onto a map axes.
