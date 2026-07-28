@@ -471,17 +471,35 @@ class Streams(Vector):
 
     _PLOT = dict(color='#4b8fbf', linewidth=0.4)
 
-    def plot(self, ax=None, **kwargs):
+    def plot(self, ax=None, width_by=None, width_range=(0.15, 1.2), **kwargs):
         """
-        Draw the streams as lines; keyword args override the blue-hairline defaults.
+        Draw the streams as lines; optionally taper the line width by river size.
+
+        Parameters
+        ----------
+        ax : matplotlib axes, optional
+        width_by : str, optional
+            A column (e.g. 'UPLAND_SKM' or 'ORD_STRA') to scale line width by, on a
+            log scale between ``width_range``. This is what makes a dense, connected
+            network read naturally -- headwaters as hairlines, main stems bold --
+            rather than a sparse threshold that leaves branches dangling.
+        width_range : tuple
+            ``(min, max)`` line widths in points for the smallest and largest rivers.
+        **kwargs
+            Override the blue-hairline defaults (``color``, ``linewidth``, ...).
 
         Examples
         --------
+        >>> streams.plot(ax=ax, width_by='UPLAND_SKM')
         >>> streams.plot(ax=ax, color='steelblue', linewidth=0.8)
 
         """
         if self.data is None:
             raise ValueError('No data to plot.')
+        if width_by is not None and width_by in self.data:
+            v = np.log10(np.asarray(self.data[width_by], dtype=float).clip(1.0))
+            lo, hi = float(v.min()), float(v.max())
+            kwargs['linewidth'] = width_range[0] if hi <= lo else np.interp(v, (lo, hi), width_range)
         return self.data.plot(ax=ax, **{**self._PLOT, **kwargs})
 
 
