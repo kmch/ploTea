@@ -126,6 +126,24 @@ class Geodataframe(Dataframe):
         super().__init__(df=gdf)
         self.gdf = gdf
 
+    @classmethod
+    def as_frame(cls, obj):
+        """
+        Return the underlying ``GeoDataFrame`` of a ``Geodataframe``, else ``obj`` unchanged.
+
+        Lets callers accept either a wrapped ``Geodataframe`` or a plain frame and
+        work with the frame uniformly.
+
+        Examples
+        --------
+        >>> Geodataframe.as_frame(Geodataframe(gdf)) is gdf
+        True
+        >>> Geodataframe.as_frame(gdf) is gdf
+        True
+
+        """
+        return obj.gdf if isinstance(obj, cls) else obj
+
     def plot(self, column: str, ax=None, **kwargs):
         """
         Plot using geometry coordinates extracted from GeoDataFrame.
@@ -773,3 +791,7 @@ class HydroLakes(Lakes):
     @data.setter
     def data(self, value):
         self._data = value
+
+
+# Helper functions
+# def _as_frame?
