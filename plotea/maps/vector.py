@@ -11,11 +11,13 @@ into a ``Bbox`` -- the whole world being a ``Bbox.world()`` in the unbounded sta
 not a ``None``.
 
 """
+import os
 from pathlib import Path
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from shapely.geometry import box as shapely_box
 
 from plotea.log import get_logger
@@ -96,6 +98,47 @@ class Vector:
         self.data.to_file(out_file)
         _log.info(f"Saved vector to {out_file}")
         return out_file
+
+class Dataframe:
+    def __init__(self, df: pd.DataFrame = None):
+        self.df = df
+
+    def plot_xy(self, column: str, xcol='lon', ycol='lat', ax=None, cmap='viridis',
+                vmin=None, vmax=None, cbar=True, marker='o', marker_size=10,
+                edgecolor='none', label=None, title=None, zorder=None):
+        if ax is None:
+            ax = plt.gca()
+        if label is None:
+            label = column
+        df = self.df
+        scatter = ax.scatter(df[xcol], df[ycol], c=df[column],
+                             cmap=cmap, marker=marker, s=marker_size,
+                             vmin=vmin, vmax=vmax, edgecolor=edgecolor, zorder=zorder)
+        if cbar:
+            plt.colorbar(scatter, ax=ax, label=label)
+        ax.set_xlabel(xcol)
+        ax.set_ylabel(ycol)
+        ax.set_title(title)
+        return ax
+
+class Geodataframe(Dataframe):
+    def __init__(self, gdf):
+        super().__init__(df=gdf)
+        self.gdf = gdf
+
+    def plot(self, column: str, ax=None, **kwargs):
+        """
+        Plot using geometry coordinates extracted from GeoDataFrame.
+        
+        """
+        df = self.df.copy()
+        df["longitude"] = self.gdf.geometry.x
+        df["latitude"]  = self.gdf.geometry.y
+        kwargs['xcol'] = 'longitude'
+        kwargs['ycol'] = 'latitude'
+        self.df = df
+        return super().plot_xy(column=column, ax=ax, **kwargs)
+
 
 
 class Bbox:
@@ -338,6 +381,82 @@ class Bbox:
 
 class Basins(Vector):
     pass
+
+
+class HydroBasins(Basins):
+    """
+    HydroBASINS drainage basins at a given Pfafstetter level (1 coarse ... 12 fine).
+
+    A ``Vector`` over the HydroBASINS shapefiles: coarser levels give fewer, larger
+    basins (useful e.g. as conservative spatial cross-validation groups), finer
+    levels give many small sub-basins. Loaded lazily like any ``Vector`` -- draw
+    with ``.plot(ax=ax)``.
+
+    Parameters
+    ----------
+    level : int
+        Pfafstetter level, 1-12.
+    base_dir : str or Path, optional
+        Directory holding ``hybas_{region}_lev{NN}_v1c.shp``. Defaults to the
+        ``HYDROBASINS_DIR`` environment variable; a consumer package can set that
+        from its own config so ``HydroBasins(level)`` works with no path.
+    region : str
+        HydroBASINS regional code in the filename (e.g. 'eu', 'na', 'as').
+
+    Examples
+    --------
+    >>> hb = HydroBasins(level=2)                     # HYDROBASINS_DIR must be set
+    >>> hb = HydroBasins(level=6, base_dir='~/data/hybas_eu_lev01-12_v1c')
+    >>> fig, ax = plotea.BaseMap(bbox='eu').plot()
+    >>> hb.data.plot(ax=ax, facecolor='none', edgecolor='b')
+
+    """
+
+    id_col = 'HYBAS_ID'
+
+    def __init__(self, level, base_dir=None, region: str = 'eu') -> None:
+        """
+        Resolve the shapefile for ``level`` and ``region``; the geometry loads lazily.
+
+        Examples
+        --------
+        >>> hb = HydroBasins(level=2)
+
+        """
+        if not 1 <= level <= 12:
+            raise ValueError(f'HydroBASINS level must be 1-12, got {level}.')
+        self.level = level
+        self.region = region
+        base = base_dir if base_dir is not None else os.environ.get('HYDROBASINS_DIR')
+        if not base:
+            raise ValueError('HydroBasins needs base_dir, or the HYDROBASINS_DIR environment variable.')
+        self.base_dir = Path(base).expanduser()
+        super().__init__(path=self._file_path())
+
+    def __repr__(self):
+        """
+        Show the level and resolved path.
+
+        Examples
+        --------
+        >>> repr(HydroBasins(level=2))
+
+        """
+        return f'HydroBasins(level={self.level}, path={self.path})'
+
+    def _file_path(self) -> Path:
+        """
+        Return the ``hybas_{region}_lev{NN}_v1c.shp`` path, raising if it is missing.
+
+        Examples
+        --------
+        >>> HydroBasins(level=2)._file_path()
+
+        """
+        path = self.base_dir / f'hybas_{self.region}_lev{self.level:02d}_v1c.shp'
+        if not path.exists():
+            raise FileNotFoundError(f'HydroBASINS shapefile not found: {path}')
+        return path
 
 
 class Country(Vector):
