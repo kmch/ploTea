@@ -1,17 +1,21 @@
 """
-Raster drawing on a map: a generic array display and a shaded-relief background.
+Raster on a map: an array display, a shaded-relief background, and a ``Raster`` class.
 
-plotea does no raster IO -- it takes no rioxarray/rasterio dependency. You pass in
-a 2D array plus its lon/lat ``extent`` (read and resampled however you like, e.g.
-a decimated window of a large DEM), and these draw it on a ``LonLatAxes``: because
-that axes assumes lon/lat, ``imshow`` needs no explicit ``transform``.
+The array helpers (``plot_raster``, ``hillshade``) do no IO -- you pass a 2D array plus its
+lon/lat ``extent``, drawn on a ``LonLatAxes`` (which assumes lon/lat, so ``imshow`` needs no
+``transform``). The ``Raster`` class *does* read files, lazily importing ``rasterio`` (an
+*optional* plotea dependency): ``import plotea`` works without it; only ``Raster.read`` needs it.
 
 """
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LightSource
 
 from plotea.log import get_logger
+
+__all__ = ['plot_raster', 'hillshade', 'Raster']
 
 _log = get_logger(__name__)
 
@@ -90,3 +94,167 @@ def hillshade(dem, azdeg: float = 315.0, altdeg: float = 45.0, vert_exag: float 
     filled = arr.filled(np.ma.median(arr)) if mask.any() else np.asarray(arr)
     intensity = LightSource(azdeg=azdeg, altdeg=altdeg).hillshade(filled, vert_exag=vert_exag, dx=dx, dy=dy)
     return np.ma.array(intensity, mask=mask)
+
+
+class Raster:
+    """
+    A raster file that reads a decimated window and plots itself on a Europe basemap.
+
+    Bundles a file ``path`` with its plotting config -- ``cmap`` and the decimation
+    ``resampling`` (use ``'nearest'`` for a class raster, so codes are not averaged into
+    nonsense; ``'average'`` for a continuous one). ``read`` lazily imports ``rasterio``, an
+    *optional* plotea dependency: ``import plotea`` works without it; only reading needs it.
+
+    Parameters
+    ----------
+    path : str or Path
+        The raster file (GeoTIFF, VRT, ...) in lon/lat (EPSG:4326).
+    cmap : str or Colormap or DiscreteCmap
+        Colormap; a ``DiscreteCmap`` (class raster) draws with its norm + colorbar labels.
+    resampling : str
+        rasterio resampling name for the decimated read ('average', 'nearest', ...).
+    label : str
+        Colorbar label (defaults to the file stem).
+    robust : bool
+        Robust (2-98%) colour limits for a continuous cmap.
+    cbar_rect : tuple
+        Inset colorbar position ``(x, y, w, h)`` in axes fraction.
+
+    Examples
+    --------
+    >>> Raster('/data/merit_elv.vrt', cmap='terrain').plot_map()
+    >>> Raster('/data/lulc.vrt', cmap=esa_worldcover(), resampling='nearest').plot_map()
+
+    """
+
+    def __init__(self, path, cmap='viridis', resampling='average', label='', robust=True, cbar_rect=(0.84, 0.52, 0.03, 0.4)):
+        """
+        Store the path and plotting/reading config.
+
+        Examples
+        --------
+        >>> Raster('/data/merit_elv.vrt', cmap='terrain', resampling='average')
+
+        """
+        self.path = Path(path).expanduser()
+        self.cmap = cmap
+        self.resampling = resampling
+        self.label = label
+        self.robust = robust
+        self.cbar_rect = cbar_rect
+
+    @property
+    def name(self) -> str:
+        """
+        The file stem (default colorbar label / plot title).
+
+        Examples
+        --------
+        >>> Raster('/data/merit_twi.vrt').name
+        'merit_twi'
+
+        """
+        return self.path.stem
+
+    def read(self, extent=None, max_px: int = 2000):
+        """
+        Read a decimated window over ``extent`` (lon0, lon1, lat0, lat1); whole raster if None.
+
+        Lazily imports ``rasterio``; decimates to ~``max_px`` on the longer side using
+        ``self.resampling``.
+
+        Parameters
+        ----------
+        extent : sequence of float, optional
+            ``(lon_min, lon_max, lat_min, lat_max)``; the raster's own bounds if None.
+        max_px : int
+            Target size of the longer output side.
+
+        Returns
+        -------
+        data : numpy.ma.MaskedArray
+        extent : tuple
+            The extent actually read (echoed for plotting).
+
+        Examples
+        --------
+        >>> data, extent = Raster('/data/merit_twi.vrt').read((-10, 30, 35, 72))
+
+        """
+        import rasterio
+        from rasterio.enums import Resampling
+        from rasterio.windows import from_bounds
+
+        with rasterio.open(self.path) as ds:
+            if extent is None:
+                b = ds.bounds
+                extent = (b.left, b.right, b.bottom, b.top)
+            lon0, lon1, lat0, lat1 = extent
+            win = from_bounds(lon0, lat0, lon1, lat1, ds.transform)
+            scale = min(1.0, max_px / max(win.width, win.height))
+            out = (max(1, round(win.height * scale)), max(1, round(win.width * scale)))
+            data = ds.read(1, window=win, out_shape=out, resampling=Resampling[self.resampling], masked=True, boundless=True)
+        return data, extent
+
+    def plot_map(self, bbox='eu', cmap=None, max_px=2000, vmin=None, vmax=None, label=None, title=None, figsize=(8, 8)):
+        """
+        Plot the raster over ``bbox`` (default Europe) with an inset colorbar (fig01 overview style).
+
+        Reads a decimated window, then draws it over Europe: coloured land, ocean showing
+        through nodata, black graticules and white borders. A ``DiscreteCmap`` for ``cmap``
+        draws with its norm and class colorbar labels.
+
+        Parameters
+        ----------
+        bbox : str or list or Bbox
+            View extent (default 'eu').
+        cmap : str or Colormap or DiscreteCmap, optional
+            Override ``self.cmap`` for a one-off.
+        max_px : int
+            Decimation target for the read.
+        vmin, vmax : float, optional
+            Colour limits for a continuous cmap (ignored for a ``DiscreteCmap``).
+        label, title : str, optional
+        figsize : tuple
+
+        Returns
+        -------
+        fig, ax
+
+        Examples
+        --------
+        >>> Raster('/data/merit_elv.vrt', cmap='terrain').plot_map()
+
+        """
+        from dataclasses import replace
+
+        from plotea import BASEMAP_GREY, BaseMap, laea_eu
+        from plotea.maps.cmaps import DiscreteCmap
+        from plotea.maps.vector import Bbox
+
+        cmap = cmap if cmap is not None else self.cmap
+        extent = Bbox.from_any(bbox).extent
+        data, extent = self.read(extent, max_px)
+        scheme = cmap if isinstance(cmap, DiscreteCmap) else None
+        kwargs = {'cmap': scheme.cmap if scheme else cmap, 'zorder': 0.5}
+        if scheme is not None:
+            kwargs['norm'] = scheme.norm
+        else:
+            if self.robust and vmin is None and vmax is None and data.count():
+                vmin, vmax = (float(v) for v in np.nanpercentile(data.compressed(), [2, 98]))
+            kwargs['vmin'], kwargs['vmax'] = vmin, vmax
+        style = replace(BASEMAP_GREY, land='#d9d9d9', graticule='black', border='white')
+        # Grey land + blue ocean under the raster (so land outside it still shows), coastline
+        # off -- the raster's own nodata edge is the coast, no coarse line over the data.
+        fig, ax = BaseMap(bbox=bbox, crs=laea_eu(), style=style, coastline=False, graticule_step=10).plot(figsize=figsize)
+        im = plot_raster(data, extent=extent, ax=ax, **kwargs)
+        cax = ax.inset_axes(list(self.cbar_rect))
+        cb = fig.colorbar(im, cax=cax)
+        if scheme is not None:
+            cb.set_ticks(scheme.values)
+            cb.set_ticklabels(scheme.labels)
+        cb.set_label(label if label is not None else (self.label or self.name), fontsize=8)
+        cb.ax.tick_params(labelsize=7)
+        if title is not None:
+            ax.set_title(title)
+        return fig, ax
