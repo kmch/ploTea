@@ -114,7 +114,12 @@ class Raster:
     resampling : str
         rasterio resampling name for the decimated read ('average', 'nearest', ...).
     label : str
-        Colorbar label (defaults to the file stem).
+        Colorbar label (defaults to the file stem); ``unit`` is appended as ``(unit)``.
+    unit : str
+        Physical unit of the (scaled) values, shown on the colorbar as ``label (unit)``.
+    scale : float
+        Multiply read values by this to reach physical ``unit`` (e.g. ``0.01`` for a raster
+        stored x100), so the colour scale and colorbar are in real units.
     robust : bool
         Robust (2-98%) colour limits for a continuous cmap.
     cbar_rect : tuple
@@ -122,24 +127,26 @@ class Raster:
 
     Examples
     --------
-    >>> Raster('/data/merit_elv.vrt', cmap='terrain').plot_map()
+    >>> Raster('/data/merit_elv.vrt', cmap='terrain', scale=0.01, unit='m').plot_map()
     >>> Raster('/data/lulc.vrt', cmap=esa_worldcover(), resampling='nearest').plot_map()
 
     """
 
-    def __init__(self, path, cmap='viridis', resampling='average', label='', robust=True, cbar_rect=(0.84, 0.52, 0.03, 0.4)):
+    def __init__(self, path, cmap='viridis', resampling='average', label='', unit='', scale=1.0, robust=True, cbar_rect=(0.84, 0.52, 0.03, 0.4)):
         """
         Store the path and plotting/reading config.
 
         Examples
         --------
-        >>> Raster('/data/merit_elv.vrt', cmap='terrain', resampling='average')
+        >>> Raster('/data/merit_elv.vrt', cmap='terrain', scale=0.01, unit='m')
 
         """
         self.path = Path(path).expanduser()
         self.cmap = cmap
         self.resampling = resampling
         self.label = label
+        self.unit = unit
+        self.scale = scale
         self.robust = robust
         self.cbar_rect = cbar_rect
 
@@ -194,6 +201,8 @@ class Raster:
             scale = min(1.0, max_px / max(win.width, win.height))
             out = (max(1, round(win.height * scale)), max(1, round(win.width * scale)))
             data = ds.read(1, window=win, out_shape=out, resampling=Resampling[self.resampling], masked=True, boundless=True)
+        if self.scale != 1.0:                                       # -> physical units for the colour scale
+            data = data * self.scale
         return data, extent
 
     def plot_map(self, bbox='eu', cmap=None, max_px=2000, vmin=None, vmax=None, label=None, title=None, figsize=(8, 8)):
@@ -253,7 +262,8 @@ class Raster:
         if scheme is not None:
             cb.set_ticks(scheme.values)
             cb.set_ticklabels(scheme.labels)
-        cb.set_label(label if label is not None else (self.label or self.name), fontsize=8)
+        base = label if label is not None else (self.label or self.name)
+        cb.set_label(f'{base} ({self.unit})' if self.unit else base, fontsize=8)
         cb.ax.tick_params(labelsize=7)
         if title is not None:
             ax.set_title(title)
