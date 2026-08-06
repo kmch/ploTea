@@ -1,10 +1,11 @@
 """
-Standard discrete colormaps for classified rasters (land cover, climate classes).
+Ready-made colormaps for rasters: discrete class schemes and a land-terrain ramp.
 
-Each builder returns a ``DiscreteCmap`` bundling the matplotlib ``cmap`` + ``norm`` (so a
-class raster draws with the official colours) together with the class ``values`` and
-``labels`` (so a colorbar can be ticked and labelled). plotea does no raster IO -- pass the
-class raster to ``plot_raster`` and the scheme's ``cmap`` / ``norm`` alongside it.
+The discrete builders return a ``DiscreteCmap`` bundling the matplotlib ``cmap`` + ``norm``
+(so a class raster draws with the official colours) together with the class ``values`` and
+``labels`` (so a colorbar can be ticked and labelled). ``land_terrain`` returns a continuous
+colormap for elevation. plotea does no raster IO -- pass the raster to ``plot_raster`` and
+the ``cmap`` / ``norm`` alongside it.
 
 Notes
 -----
@@ -16,7 +17,7 @@ from dataclasses import dataclass
 
 from matplotlib.colors import Colormap, Normalize, from_levels_and_colors
 
-__all__ = ['DiscreteCmap', 'esa_worldcover', 'koeppen_geiger']
+__all__ = ['DiscreteCmap', 'esa_worldcover', 'koeppen_geiger', 'land_terrain']
 
 
 @dataclass(frozen=True)
@@ -102,3 +103,27 @@ def koeppen_geiger() -> DiscreteCmap:
     levels = [c - 0.5 for c in values] + [30.5]
     cmap, norm = from_levels_and_colors(levels, colors)
     return DiscreteCmap(cmap, norm, values, labels)
+
+
+def land_terrain():
+    """
+    The matplotlib ``terrain`` colormap with its blue underwater low end trimmed off.
+
+    For plotting land elevation, so lowlands read green rather than the bathymetry blue that
+    ``terrain`` puts at its bottom. A continuous ``Colormap`` (not a ``DiscreteCmap``).
+
+    Returns
+    -------
+    matplotlib.colors.Colormap
+
+    Examples
+    --------
+    >>> plot_raster(dem, extent=ext, ax=ax, cmap=land_terrain())
+
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LinearSegmentedColormap
+
+    base = plt.get_cmap('terrain')
+    return LinearSegmentedColormap.from_list('land_terrain', base(np.linspace(0.25, 1.0, 256)))
