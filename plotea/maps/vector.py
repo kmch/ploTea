@@ -1,14 +1,5 @@
 """
-Vector data and bounding boxes: the ``Vector`` wrapper, the ``Bbox`` view, and the name resolver.
-
-Notes
------
-A ``Bbox`` is a padded bounding box derived from geometry; in a map it is what
-sets the axes extent (its ``extent`` property is the tuple cartopy's
-``set_extent`` wants, or None for the whole world). ``Bbox.from_any`` turns a name
-(a key of ``ROIS``), a raw box, a geometry, an existing ``Bbox``, or None/'world'
-into a ``Bbox`` -- the whole world being a ``Bbox.world()`` in the unbounded state,
-not a ``None``.
+Vector data.
 
 """
 import os
@@ -21,10 +12,29 @@ import pandas as pd
 from shapely.geometry import box as shapely_box
 
 from plotea.log import get_logger
-from plotea.maps.registry import ROIS
+from plotea.maps.registry import ROIS # used by Bbox.from_name
 
 _log = get_logger(__name__)
 
+# Helper functions -----------------------------------------------------
+
+def _read_bbox(bbox):
+    """
+    Turn a ``Bbox.from_any`` input into the ``(minx, miny, maxx, maxy)`` tuple GeoPandas reads with.
+
+    Examples
+    --------
+    >>> _read_bbox('fr')
+    (-4.762, 41.384, 9.556, 51.097)
+
+    """
+    if bbox is None:
+        return None
+    xmin, xmax, ymin, ymax = Bbox.from_any(bbox).extent
+    return (xmin, ymin, xmax, ymax)
+
+
+# Main abstractions -----------------------------------------------------
 
 class Vector:
     """
@@ -158,6 +168,392 @@ class Geodataframe(Dataframe):
         return super().plot_xy(column=column, ax=ax, **kwargs)
 
 
+# Basins ---------------------------------------------------------------
+
+class Basins(Vector):
+    pass
+
+class HydroBasins(Basins):
+    """
+    HydroBASINS drainage basins at a given Pfafstetter level (1 coarse ... 12 fine).
+
+    A ``Vector`` over the HydroBASINS shapefiles: coarser levels give fewer, larger
+    basins (useful e.g. as conservative spatial cross-validation groups), finer
+    levels give many small sub-basins. Loaded lazily like any ``Vector`` -- draw
+    with ``.plot(ax=ax)``.
+
+    Parameters
+    ----------
+    level : int
+        Pfafstetter level, 1-12.
+    base_dir : str or Path, optional
+        Directory holding ``hybas_{region}_lev{NN}_v1c.shp``. Defaults to the
+        ``HYDROBASINS_DIR`` environment variable; a consumer package can set that
+        from its own config so ``HydroBasins(level)`` works with no path.
+    region : str
+        HydroBASINS regional code in the filename (e.g. 'eu', 'na', 'as').
+
+    Examples
+    --------
+    >>> hb = HydroBasins(level=2)                     # HYDROBASINS_DIR must be set
+    >>> hb = HydroBasins(level=6, base_dir='~/data/hybas_eu_lev01-12_v1c')
+    >>> fig, ax = plotea.BaseMap(bbox='eu').plot()
+    >>> hb.data.plot(ax=ax, facecolor='none', edgecolor='b')
+
+    """
+
+    id_col = 'HYBAS_ID'
+
+    def __init__(self, level, base_dir=None, region: str = 'eu') -> None:
+        """
+        Resolve the shapefile for ``level`` and ``region``; the geometry loads lazily.
+
+        Examples
+        --------
+        >>> hb = HydroBasins(level=2)
+
+        """
+        if not 1 <= level <= 12:
+            raise ValueError(f'HydroBASINS level must be 1-12, got {level}.')
+        self.level = level
+        self.region = region
+        base = base_dir if base_dir is not None else os.environ.get('HYDROBASINS_DIR')
+        if not base:
+            raise ValueError('HydroBasins needs base_dir, or the HYDROBASINS_DIR environment variable.')
+        self.base_dir = Path(base).expanduser()
+        super().__init__(path=self._file_path())
+
+    def __repr__(self):
+        """
+        Show the level and resolved path.
+
+        Examples
+        --------
+        >>> repr(HydroBasins(level=2))
+
+        """
+        return f'HydroBasins(level={self.level}, path={self.path})'
+
+    def _file_path(self) -> Path:
+        """
+        Return the ``hybas_{region}_lev{NN}_v1c.shp`` path, raising if it is missing.
+
+        Examples
+        --------
+        >>> HydroBasins(level=2)._file_path()
+
+        """
+        path = self.base_dir / f'hybas_{self.region}_lev{self.level:02d}_v1c.shp'
+        if not path.exists():
+            raise FileNotFoundError(f'HydroBASINS shapefile not found: {path}')
+        return path
+
+
+# Countries ------------------------------------------------------------
+
+class Country(Vector):
+    """
+    A country polygon (Natural Earth ``admin_0``) plus the ROI box for zooming to it.
+
+    ``Country('fr')`` carries two things a country panel needs: ``.bbox``, the
+    region-of-interest box from ``ROIS`` (the *view* extent, e.g. mainland France),
+    and ``.data``, the country's polygon -- lazily loaded from Natural Earth and
+    clipped to that ROI, so overseas territories and any globe-spanning geometry are
+    dropped before any downstream drawing, clipping or bounds computation.
+
+    Parameters
+    ----------
+    code : str
+        A country code that is both a key of ``ROIS`` (lower-case, e.g. 'fr') and,
+        upper-cased, the Natural Earth ``ISO_A2_EH`` code (e.g. 'FR').
+    resolution : str
+        Natural Earth resolution: '50m' (default), '110m' or '10m'.
+    clip : bool
+        Clip the polygon to the ROI box before storing it. True by default -- this
+        is what removes overseas territories.
+    pad : float
+        Fractional padding on the ROI box used *for clipping* (not for the view), so
+        the mainland outline is not shaved at the box edges while distant territories
+        are still cut.
+
+    Notes
+    -----
+    ``ISO_A2_EH``, not ``ISO_A2``: Natural Earth codes France and Norway as
+    ``ISO_A2 == '-99'`` (a sovereignty quirk); the ``_EH`` variant gives the
+    expected 'FR'/'NO'. ``.data`` is a one-row (single country) ``GeoDataFrame`` in
+    EPSG:4326; on a plotea ``LonLatAxes`` it draws with a bare ``.plot(ax=ax)``.
+
+    Examples
+    --------
+    >>> fr = Country('fr')
+    >>> fr.bbox.extent                       # mainland view extent, from ROIS
+    (-4.762, 9.556, 41.384, 51.097)
+    >>> ax = fr.data.plot(facecolor='none', edgecolor='k')   # mainland outline
+
+    """
+
+    def __init__(self, code: str, resolution: str = '50m', clip: bool = True, pad: float = 0.15) -> None:
+        """
+        Resolve the code to its ROI box; the polygon loads lazily on first ``.data`` access.
+
+        Examples
+        --------
+        >>> fr = Country('fr')
+
+        """
+        super().__init__()
+        self.roi = code.lower()
+        self.iso = code.upper()
+        self.resolution = resolution
+        self._clip = clip
+        self._pad = pad
+        self.bbox = Bbox.from_name(self.roi)
+
+    @property
+    def data(self) -> gpd.GeoDataFrame:
+        """
+        The country polygon, loaded from Natural Earth and clipped to the ROI, cached after first access.
+
+        Examples
+        --------
+        >>> Country('fr').data.shape[0]
+        1
+
+        """
+        if self._data is None:
+            self._data = self._load()
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = value
+
+    def _load(self) -> gpd.GeoDataFrame:
+        """
+        Read Natural Earth ``admin_0_countries``, select this country by ``ISO_A2_EH``, and clip to the ROI.
+
+        Examples
+        --------
+        >>> gdf = Country('fr')._load()
+
+        """
+        from plotea.maps import carto  # cartopy access stays in carto
+        gdf = gpd.read_file(carto.countries_shapefile(self.resolution))
+        sel = gdf[gdf['ISO_A2_EH'] == self.iso]
+        if sel.empty:
+            raise KeyError(f'no country with ISO_A2_EH == {self.iso!r} in Natural Earth admin_0_countries')
+        _log.info('%s: %d feature(s) selected', self.iso, len(sel))
+        if self._clip:
+            clip_box = Bbox.from_name(self.roi, pad=self._pad).bbox
+            sel = gpd.clip(sel, clip_box)
+        return sel.dissolve().reset_index(drop=True)
+
+
+# Streams ------------------------------------------------------------
+
+class Streams(Vector):
+    """
+    A stream / river line network -- a ``Vector`` whose ``plot`` draws lines.
+
+    Notes
+    -----
+    A thin base over ``Vector`` that only fixes line-appropriate plot defaults
+    (a blue hairline); subclasses such as ``HydroRivers`` add dataset knowledge.
+
+    Examples
+    --------
+    >>> Streams(data=rivers_gdf).plot(ax=ax, linewidth=0.6)
+
+    """
+
+    _PLOT = dict(color='#4b8fbf', linewidth=0.4)
+
+    def plot(self, ax=None, width_by=None, width_range=(0.15, 1.2), **kwargs):
+        """
+        Draw the streams as lines; optionally taper the line width by river size.
+
+        Parameters
+        ----------
+        ax : matplotlib axes, optional
+        width_by : str, optional
+            A column (e.g. 'UPLAND_SKM' or 'ORD_STRA') to scale line width by, on a
+            log scale between ``width_range``. This is what makes a dense, connected
+            network read naturally -- headwaters as hairlines, main stems bold --
+            rather than a sparse threshold that leaves branches dangling.
+        width_range : tuple
+            ``(min, max)`` line widths in points for the smallest and largest rivers.
+        **kwargs
+            Override the blue-hairline defaults (``color``, ``linewidth``, ...).
+
+        Examples
+        --------
+        >>> streams.plot(ax=ax, width_by='UPLAND_SKM')
+        >>> streams.plot(ax=ax, color='steelblue', linewidth=0.8)
+
+        """
+        if self.data is None:
+            raise ValueError('No data to plot.')
+        data = self.data
+        if width_by is not None and width_by in data:
+            v = np.log10(np.asarray(data[width_by], dtype=float).clip(1.0))
+            lo, hi = float(v.min()), float(v.max())
+            kwargs['linewidth'] = width_range[0] if hi <= lo else np.interp(v, (lo, hi), width_range)
+        # Reproject to the axes CRS once and draw in it, so cartopy skips its slow
+        # per-vertex reprojection of every reach (a dense network: minutes -> seconds).
+        proj = getattr(ax, 'projection', None)
+        if proj is not None and data.crs is not None and 'transform' not in kwargs:
+            data = data.to_crs(proj)
+            kwargs['transform'] = proj
+        return data.plot(ax=ax, **{**self._PLOT, **kwargs})
+
+class HydroRivers(Streams):
+    """
+    The HydroRIVERS network, read filtered to the major rivers of a view.
+
+    Only reaches with upstream catchment area >= ``min_upland`` (km2) within
+    ``bbox`` are read, via an attribute + spatial filter at read time, so the
+    ~1e6-feature file loads in a moment. Upstream area is chosen over discharge
+    because it grows monotonically downstream, so the kept network stays *connected*
+    to the sea -- a discharge threshold instead severs low-flow main stems in arid
+    regions and leaves tributaries dangling. The schema also carries ``DIS_AV_CMS``
+    (mean discharge), ``ORD_FLOW`` (1-10, lower = larger) and ``ORD_STRA``.
+
+    Parameters
+    ----------
+    path : str or Path
+        The HydroRIVERS ``.gdb`` (or any HydroRIVERS-schema file).
+    min_upland : float or None
+        Keep reaches with ``UPLAND_SKM >= min_upland``; None keeps all (slow).
+    bbox : str or Bbox or geometry, optional
+        Anything ``Bbox.from_any`` accepts (e.g. 'fr'); only rivers intersecting it
+        are read.
+
+    Examples
+    --------
+    >>> HydroRivers(path, min_upland=5000, bbox='fr').plot(ax=ax)
+
+    """
+
+    def __init__(self, path, min_upland: float = 1000.0, bbox=None) -> None:
+        """
+        Store the read filters; the network loads lazily on first ``.data`` access.
+
+        Examples
+        --------
+        >>> rivers = HydroRivers(path, min_upland=20000, bbox='eu')
+
+        """
+        super().__init__(path=path)
+        self.min_upland = min_upland
+        self._bbox = bbox
+
+    @property
+    def data(self) -> gpd.GeoDataFrame:
+        """
+        The filtered river lines, read once and cached.
+
+        Examples
+        --------
+        >>> HydroRivers(path, bbox='fr').data.crs
+        <Geographic 2D CRS: EPSG:4326>
+
+        """
+        if self._data is None:
+            where = None if self.min_upland is None else f'UPLAND_SKM >= {self.min_upland}'
+            self._data = gpd.read_file(self.path, where=where, bbox=_read_bbox(self._bbox))
+            _log.info('%d river reaches (upland >= %s km2)', len(self._data), self.min_upland)
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = value
+
+
+# Lakes --------------------------------------------------------------
+
+class Lakes(Vector):
+    """
+    Lake polygons -- a ``Vector`` whose ``plot`` fills the water bodies.
+
+    Examples
+    --------
+    >>> Lakes(data=lakes_gdf).plot(ax=ax)
+
+    """
+
+    _PLOT = dict(facecolor='#cfe1f2', edgecolor='none')
+
+    def plot(self, ax=None, **kwargs):
+        """
+        Draw the lakes as filled polygons; keyword args override the pale-blue defaults.
+
+        Examples
+        --------
+        >>> lakes.plot(ax=ax, facecolor='#d6e6f2')
+
+        """
+        if self.data is None:
+            raise ValueError('No data to plot.')
+        return self.data.plot(ax=ax, **{**self._PLOT, **kwargs})
+
+class HydroLakes(Lakes):
+    """
+    The HydroLAKES polygons, read filtered to the larger lakes of a view.
+
+    Only lakes with ``Lake_area >= min_area`` (km2) within ``bbox`` are read, so the
+    global ~1.4e6-feature file loads quickly.
+
+    Parameters
+    ----------
+    path : str or Path
+        The HydroLAKES ``.gdb`` (or any HydroLAKES-schema file).
+    min_area : float or None
+        Keep lakes with ``Lake_area >= min_area`` km2; None keeps all (slow).
+    bbox : str or Bbox or geometry, optional
+        Anything ``Bbox.from_any`` accepts; only lakes intersecting it are read.
+
+    Examples
+    --------
+    >>> HydroLakes(path, min_area=50, bbox='fr').plot(ax=ax)
+
+    """
+
+    def __init__(self, path, min_area: float = 10.0, bbox=None) -> None:
+        """
+        Store the read filters; the lakes load lazily on first ``.data`` access.
+
+        Examples
+        --------
+        >>> lakes = HydroLakes(path, min_area=100, bbox='eu')
+
+        """
+        super().__init__(path=path)
+        self.min_area = min_area
+        self._bbox = bbox
+
+    @property
+    def data(self) -> gpd.GeoDataFrame:
+        """
+        The filtered lake polygons, read once and cached.
+
+        Examples
+        --------
+        >>> HydroLakes(path, bbox='fr').data.crs
+        <Geographic 2D CRS: EPSG:4326>
+
+        """
+        if self._data is None:
+            where = None if self.min_area is None else f'Lake_area >= {self.min_area}'
+            self._data = gpd.read_file(self.path, where=where, bbox=_read_bbox(self._bbox))
+            _log.info('%d lakes (area >= %s km2)', len(self._data), self.min_area)
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = value
+
+
+# Miscellaneous --------------------------------------------------------
 
 class Bbox:
     """
@@ -396,402 +792,3 @@ class Bbox:
             ax.set_ylim(miny - h * zoom_pad, maxy + h * zoom_pad)
         return ax
 
-
-class Basins(Vector):
-    pass
-
-
-class HydroBasins(Basins):
-    """
-    HydroBASINS drainage basins at a given Pfafstetter level (1 coarse ... 12 fine).
-
-    A ``Vector`` over the HydroBASINS shapefiles: coarser levels give fewer, larger
-    basins (useful e.g. as conservative spatial cross-validation groups), finer
-    levels give many small sub-basins. Loaded lazily like any ``Vector`` -- draw
-    with ``.plot(ax=ax)``.
-
-    Parameters
-    ----------
-    level : int
-        Pfafstetter level, 1-12.
-    base_dir : str or Path, optional
-        Directory holding ``hybas_{region}_lev{NN}_v1c.shp``. Defaults to the
-        ``HYDROBASINS_DIR`` environment variable; a consumer package can set that
-        from its own config so ``HydroBasins(level)`` works with no path.
-    region : str
-        HydroBASINS regional code in the filename (e.g. 'eu', 'na', 'as').
-
-    Examples
-    --------
-    >>> hb = HydroBasins(level=2)                     # HYDROBASINS_DIR must be set
-    >>> hb = HydroBasins(level=6, base_dir='~/data/hybas_eu_lev01-12_v1c')
-    >>> fig, ax = plotea.BaseMap(bbox='eu').plot()
-    >>> hb.data.plot(ax=ax, facecolor='none', edgecolor='b')
-
-    """
-
-    id_col = 'HYBAS_ID'
-
-    def __init__(self, level, base_dir=None, region: str = 'eu') -> None:
-        """
-        Resolve the shapefile for ``level`` and ``region``; the geometry loads lazily.
-
-        Examples
-        --------
-        >>> hb = HydroBasins(level=2)
-
-        """
-        if not 1 <= level <= 12:
-            raise ValueError(f'HydroBASINS level must be 1-12, got {level}.')
-        self.level = level
-        self.region = region
-        base = base_dir if base_dir is not None else os.environ.get('HYDROBASINS_DIR')
-        if not base:
-            raise ValueError('HydroBasins needs base_dir, or the HYDROBASINS_DIR environment variable.')
-        self.base_dir = Path(base).expanduser()
-        super().__init__(path=self._file_path())
-
-    def __repr__(self):
-        """
-        Show the level and resolved path.
-
-        Examples
-        --------
-        >>> repr(HydroBasins(level=2))
-
-        """
-        return f'HydroBasins(level={self.level}, path={self.path})'
-
-    def _file_path(self) -> Path:
-        """
-        Return the ``hybas_{region}_lev{NN}_v1c.shp`` path, raising if it is missing.
-
-        Examples
-        --------
-        >>> HydroBasins(level=2)._file_path()
-
-        """
-        path = self.base_dir / f'hybas_{self.region}_lev{self.level:02d}_v1c.shp'
-        if not path.exists():
-            raise FileNotFoundError(f'HydroBASINS shapefile not found: {path}')
-        return path
-
-
-class Country(Vector):
-    """
-    A country polygon (Natural Earth ``admin_0``) plus the ROI box for zooming to it.
-
-    ``Country('fr')`` carries two things a country panel needs: ``.bbox``, the
-    region-of-interest box from ``ROIS`` (the *view* extent, e.g. mainland France),
-    and ``.data``, the country's polygon -- lazily loaded from Natural Earth and
-    clipped to that ROI, so overseas territories and any globe-spanning geometry are
-    dropped before any downstream drawing, clipping or bounds computation.
-
-    Parameters
-    ----------
-    code : str
-        A country code that is both a key of ``ROIS`` (lower-case, e.g. 'fr') and,
-        upper-cased, the Natural Earth ``ISO_A2_EH`` code (e.g. 'FR').
-    resolution : str
-        Natural Earth resolution: '50m' (default), '110m' or '10m'.
-    clip : bool
-        Clip the polygon to the ROI box before storing it. True by default -- this
-        is what removes overseas territories.
-    pad : float
-        Fractional padding on the ROI box used *for clipping* (not for the view), so
-        the mainland outline is not shaved at the box edges while distant territories
-        are still cut.
-
-    Notes
-    -----
-    ``ISO_A2_EH``, not ``ISO_A2``: Natural Earth codes France and Norway as
-    ``ISO_A2 == '-99'`` (a sovereignty quirk); the ``_EH`` variant gives the
-    expected 'FR'/'NO'. ``.data`` is a one-row (single country) ``GeoDataFrame`` in
-    EPSG:4326; on a plotea ``LonLatAxes`` it draws with a bare ``.plot(ax=ax)``.
-
-    Examples
-    --------
-    >>> fr = Country('fr')
-    >>> fr.bbox.extent                       # mainland view extent, from ROIS
-    (-4.762, 9.556, 41.384, 51.097)
-    >>> ax = fr.data.plot(facecolor='none', edgecolor='k')   # mainland outline
-
-    """
-
-    def __init__(self, code: str, resolution: str = '50m', clip: bool = True, pad: float = 0.15) -> None:
-        """
-        Resolve the code to its ROI box; the polygon loads lazily on first ``.data`` access.
-
-        Examples
-        --------
-        >>> fr = Country('fr')
-
-        """
-        super().__init__()
-        self.roi = code.lower()
-        self.iso = code.upper()
-        self.resolution = resolution
-        self._clip = clip
-        self._pad = pad
-        self.bbox = Bbox.from_name(self.roi)
-
-    @property
-    def data(self) -> gpd.GeoDataFrame:
-        """
-        The country polygon, loaded from Natural Earth and clipped to the ROI, cached after first access.
-
-        Examples
-        --------
-        >>> Country('fr').data.shape[0]
-        1
-
-        """
-        if self._data is None:
-            self._data = self._load()
-        return self._data
-
-    @data.setter
-    def data(self, value):
-        self._data = value
-
-    def _load(self) -> gpd.GeoDataFrame:
-        """
-        Read Natural Earth ``admin_0_countries``, select this country by ``ISO_A2_EH``, and clip to the ROI.
-
-        Examples
-        --------
-        >>> gdf = Country('fr')._load()
-
-        """
-        from plotea.maps import carto  # cartopy access stays in carto
-        gdf = gpd.read_file(carto.countries_shapefile(self.resolution))
-        sel = gdf[gdf['ISO_A2_EH'] == self.iso]
-        if sel.empty:
-            raise KeyError(f'no country with ISO_A2_EH == {self.iso!r} in Natural Earth admin_0_countries')
-        _log.info('%s: %d feature(s) selected', self.iso, len(sel))
-        if self._clip:
-            clip_box = Bbox.from_name(self.roi, pad=self._pad).bbox
-            sel = gpd.clip(sel, clip_box)
-        return sel.dissolve().reset_index(drop=True)
-
-
-def _read_bbox(bbox):
-    """
-    Turn a ``Bbox.from_any`` input into the ``(minx, miny, maxx, maxy)`` tuple GeoPandas reads with.
-
-    Examples
-    --------
-    >>> _read_bbox('fr')
-    (-4.762, 41.384, 9.556, 51.097)
-
-    """
-    if bbox is None:
-        return None
-    xmin, xmax, ymin, ymax = Bbox.from_any(bbox).extent
-    return (xmin, ymin, xmax, ymax)
-
-
-class Streams(Vector):
-    """
-    A stream / river line network -- a ``Vector`` whose ``plot`` draws lines.
-
-    Notes
-    -----
-    A thin base over ``Vector`` that only fixes line-appropriate plot defaults
-    (a blue hairline); subclasses such as ``HydroRivers`` add dataset knowledge.
-
-    Examples
-    --------
-    >>> Streams(data=rivers_gdf).plot(ax=ax, linewidth=0.6)
-
-    """
-
-    _PLOT = dict(color='#4b8fbf', linewidth=0.4)
-
-    def plot(self, ax=None, width_by=None, width_range=(0.15, 1.2), **kwargs):
-        """
-        Draw the streams as lines; optionally taper the line width by river size.
-
-        Parameters
-        ----------
-        ax : matplotlib axes, optional
-        width_by : str, optional
-            A column (e.g. 'UPLAND_SKM' or 'ORD_STRA') to scale line width by, on a
-            log scale between ``width_range``. This is what makes a dense, connected
-            network read naturally -- headwaters as hairlines, main stems bold --
-            rather than a sparse threshold that leaves branches dangling.
-        width_range : tuple
-            ``(min, max)`` line widths in points for the smallest and largest rivers.
-        **kwargs
-            Override the blue-hairline defaults (``color``, ``linewidth``, ...).
-
-        Examples
-        --------
-        >>> streams.plot(ax=ax, width_by='UPLAND_SKM')
-        >>> streams.plot(ax=ax, color='steelblue', linewidth=0.8)
-
-        """
-        if self.data is None:
-            raise ValueError('No data to plot.')
-        data = self.data
-        if width_by is not None and width_by in data:
-            v = np.log10(np.asarray(data[width_by], dtype=float).clip(1.0))
-            lo, hi = float(v.min()), float(v.max())
-            kwargs['linewidth'] = width_range[0] if hi <= lo else np.interp(v, (lo, hi), width_range)
-        # Reproject to the axes CRS once and draw in it, so cartopy skips its slow
-        # per-vertex reprojection of every reach (a dense network: minutes -> seconds).
-        proj = getattr(ax, 'projection', None)
-        if proj is not None and data.crs is not None and 'transform' not in kwargs:
-            data = data.to_crs(proj)
-            kwargs['transform'] = proj
-        return data.plot(ax=ax, **{**self._PLOT, **kwargs})
-
-
-class HydroRivers(Streams):
-    """
-    The HydroRIVERS network, read filtered to the major rivers of a view.
-
-    Only reaches with upstream catchment area >= ``min_upland`` (km2) within
-    ``bbox`` are read, via an attribute + spatial filter at read time, so the
-    ~1e6-feature file loads in a moment. Upstream area is chosen over discharge
-    because it grows monotonically downstream, so the kept network stays *connected*
-    to the sea -- a discharge threshold instead severs low-flow main stems in arid
-    regions and leaves tributaries dangling. The schema also carries ``DIS_AV_CMS``
-    (mean discharge), ``ORD_FLOW`` (1-10, lower = larger) and ``ORD_STRA``.
-
-    Parameters
-    ----------
-    path : str or Path
-        The HydroRIVERS ``.gdb`` (or any HydroRIVERS-schema file).
-    min_upland : float or None
-        Keep reaches with ``UPLAND_SKM >= min_upland``; None keeps all (slow).
-    bbox : str or Bbox or geometry, optional
-        Anything ``Bbox.from_any`` accepts (e.g. 'fr'); only rivers intersecting it
-        are read.
-
-    Examples
-    --------
-    >>> HydroRivers(path, min_upland=5000, bbox='fr').plot(ax=ax)
-
-    """
-
-    def __init__(self, path, min_upland: float = 1000.0, bbox=None) -> None:
-        """
-        Store the read filters; the network loads lazily on first ``.data`` access.
-
-        Examples
-        --------
-        >>> rivers = HydroRivers(path, min_upland=20000, bbox='eu')
-
-        """
-        super().__init__(path=path)
-        self.min_upland = min_upland
-        self._bbox = bbox
-
-    @property
-    def data(self) -> gpd.GeoDataFrame:
-        """
-        The filtered river lines, read once and cached.
-
-        Examples
-        --------
-        >>> HydroRivers(path, bbox='fr').data.crs
-        <Geographic 2D CRS: EPSG:4326>
-
-        """
-        if self._data is None:
-            where = None if self.min_upland is None else f'UPLAND_SKM >= {self.min_upland}'
-            self._data = gpd.read_file(self.path, where=where, bbox=_read_bbox(self._bbox))
-            _log.info('%d river reaches (upland >= %s km2)', len(self._data), self.min_upland)
-        return self._data
-
-    @data.setter
-    def data(self, value):
-        self._data = value
-
-
-class Lakes(Vector):
-    """
-    Lake polygons -- a ``Vector`` whose ``plot`` fills the water bodies.
-
-    Examples
-    --------
-    >>> Lakes(data=lakes_gdf).plot(ax=ax)
-
-    """
-
-    _PLOT = dict(facecolor='#cfe1f2', edgecolor='none')
-
-    def plot(self, ax=None, **kwargs):
-        """
-        Draw the lakes as filled polygons; keyword args override the pale-blue defaults.
-
-        Examples
-        --------
-        >>> lakes.plot(ax=ax, facecolor='#d6e6f2')
-
-        """
-        if self.data is None:
-            raise ValueError('No data to plot.')
-        return self.data.plot(ax=ax, **{**self._PLOT, **kwargs})
-
-
-class HydroLakes(Lakes):
-    """
-    The HydroLAKES polygons, read filtered to the larger lakes of a view.
-
-    Only lakes with ``Lake_area >= min_area`` (km2) within ``bbox`` are read, so the
-    global ~1.4e6-feature file loads quickly.
-
-    Parameters
-    ----------
-    path : str or Path
-        The HydroLAKES ``.gdb`` (or any HydroLAKES-schema file).
-    min_area : float or None
-        Keep lakes with ``Lake_area >= min_area`` km2; None keeps all (slow).
-    bbox : str or Bbox or geometry, optional
-        Anything ``Bbox.from_any`` accepts; only lakes intersecting it are read.
-
-    Examples
-    --------
-    >>> HydroLakes(path, min_area=50, bbox='fr').plot(ax=ax)
-
-    """
-
-    def __init__(self, path, min_area: float = 10.0, bbox=None) -> None:
-        """
-        Store the read filters; the lakes load lazily on first ``.data`` access.
-
-        Examples
-        --------
-        >>> lakes = HydroLakes(path, min_area=100, bbox='eu')
-
-        """
-        super().__init__(path=path)
-        self.min_area = min_area
-        self._bbox = bbox
-
-    @property
-    def data(self) -> gpd.GeoDataFrame:
-        """
-        The filtered lake polygons, read once and cached.
-
-        Examples
-        --------
-        >>> HydroLakes(path, bbox='fr').data.crs
-        <Geographic 2D CRS: EPSG:4326>
-
-        """
-        if self._data is None:
-            where = None if self.min_area is None else f'Lake_area >= {self.min_area}'
-            self._data = gpd.read_file(self.path, where=where, bbox=_read_bbox(self._bbox))
-            _log.info('%d lakes (area >= %s km2)', len(self._data), self.min_area)
-        return self._data
-
-    @data.setter
-    def data(self, value):
-        self._data = value
-
-
-# Helper functions
-# def _as_frame?

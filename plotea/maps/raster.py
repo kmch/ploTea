@@ -11,11 +11,12 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib.colors import LightSource
 
 from plotea.log import get_logger
 
-__all__ = ['plot_raster', 'hillshade', 'Raster']
+__all__ = ['plot_raster', 'hillshade', 'Raster', 'RasterAnalyzer']
 
 _log = get_logger(__name__)
 
@@ -201,6 +202,8 @@ class Raster:
             scale = min(1.0, max_px / max(win.width, win.height))
             out = (max(1, round(win.height * scale)), max(1, round(win.width * scale)))
             data = ds.read(1, window=win, out_shape=out, resampling=Resampling[self.resampling], masked=True, boundless=True)
+            if ds.nodata is not None:                               # external .ovr overviews may drop the nodata -> mask it explicitly
+                data = np.ma.masked_equal(data, ds.nodata)
         if self.scale != 1.0:                                       # -> physical units for the colour scale
             data = data * self.scale
         return data, extent
@@ -257,14 +260,177 @@ class Raster:
         # off -- the raster's own nodata edge is the coast, no coarse line over the data.
         fig, ax = BaseMap(bbox=bbox, crs=laea_eu(), style=style, coastline=False, graticule_step=10).plot(figsize=figsize)
         im = plot_raster(data, extent=extent, ax=ax, **kwargs)
-        cax = ax.inset_axes(list(self.cbar_rect))
-        cb = fig.colorbar(im, cax=cax)
+        # Horizontal colorbar in the top-left corner -- over the NW-Atlantic / Iceland, off the data.
+        wide = 0.46 if scheme is not None else 0.30            # class rasters get a wider bar for their labels
+        cax = ax.inset_axes([0.04, 0.90, wide, 0.02])
+        cb  = fig.colorbar(im, cax=cax, orientation='horizontal')
+        cb.ax.xaxis.set_ticks_position('bottom')
+        cb.ax.xaxis.set_label_position('top')
         if scheme is not None:
             cb.set_ticks(scheme.values)
             cb.set_ticklabels(scheme.labels)
+            cb.ax.tick_params(labelsize=5, rotation=90)
+        else:
+            cb.ax.tick_params(labelsize=7)
         base = label if label is not None else (self.label or self.name)
         cb.set_label(f'{base} ({self.unit})' if self.unit else base, fontsize=8)
-        cb.ax.tick_params(labelsize=7)
         if title is not None:
             ax.set_title(title)
         return fig, ax
+
+
+class RasterAnalyzer:
+    """
+    Report structure and value ranges of rasters as a pandas DataFrame.
+
+    ``describe`` returns one row per raster (generic, no assumptions about naming);
+    ``summary`` groups those rows via ``group_by`` and aggregates per group.
+
+    Examples
+    --------
+    >>> RasterAnalyzer.describe(['a_regunit_43.tif', 'a_regunit_44.tif'])
+    >>> RasterAnalyzer.summary(PATH.accum_rasters, group_by='dir')
+
+    """
+
+    REGUNIT_SUFFIX = r'_regunit_\d+.*'   # strip this from a tile filename to get its base name
+
+    # gdalinfo-style column order for ``full`` (name/dir prepended, val_mean kept if present)
+    FULL_COLUMNS = ['name', 'dir', 'size_gb', 'driver', 'width', 'height', 'n_bands', 'dtype',
+                    'nodata', 'val_min', 'val_max', 'val_mean', 'compression', 'block_x', 'block_y',
+                    'crs', 'res_x', 'res_y', 'x_min', 'y_min', 'x_max', 'y_max']
+
+    @classmethod
+    def describe(cls, rasters, stats: bool = True, approx: bool = True, full: bool = False) -> pd.DataFrame:
+        """
+        Return a DataFrame with one row per raster: name, dir, dtype, nodata, dims, size (+ value range).
+
+        Parameters
+        ----------
+        rasters : str or Path or sequence
+            A directory (searched recursively for ``*.tif``), a single raster, or a
+            list of paths.
+        stats : bool
+            Also compute the value range (``val_min`` / ``val_max`` / ``val_mean``).
+            Skip it (``False``) for a fast structure-only check of huge rasters.
+        approx : bool
+            When ``stats``, use approximate statistics (overviews / subsampling) --
+            much faster on large rasters.
+        full : bool
+            Also report the full gdalinfo-style set of columns: ``driver``, ``n_bands``,
+            ``compression``, block size (``block_x`` / ``block_y``), ``crs``, pixel size
+            (``res_x`` / ``res_y``) and bounds (``x_min`` / ``y_min`` / ``x_max`` / ``y_max``),
+            ordered as in ``FULL_COLUMNS``.
+
+        Returns
+        -------
+        pandas.DataFrame
+
+        Examples
+        --------
+        >>> RasterAnalyzer.describe(PATH.accum_rasters / 'merit_elv', stats=False)
+        >>> RasterAnalyzer.describe('/data/dem.tif', full=True)
+
+        """
+        rows = []
+        for path in cls._paths(rasters):
+            with rasterio.open(path) as ds:
+                row = {'name': path.name,
+                       'dir': path.parent.name,
+                       'dtype': ds.dtypes[0],
+                       'nodata': ds.nodata,
+                       'width': ds.width,
+                       'height': ds.height,
+                       'size_gb': round(path.stat().st_size / 1e9, 4)}
+                if stats:
+                    try:
+                        with warnings.catch_warnings():
+                            warnings.simplefilter('ignore')          # rasterio statistics() deprecation
+                            st = ds.statistics(1, approx=approx)
+                        row['val_min'], row['val_max'], row['val_mean'] = st.min, st.max, round(st.mean, 4)
+                    except Exception as exc:                       # unreadable / all-nodata band
+                        row['val_min'] = row['val_max'] = row['val_mean'] = float('nan')
+                        _log.warning('stats failed for %s: %s', path.name, exc)
+                if full:
+                    block_y, block_x = ds.block_shapes[0]          # (rows, cols) per gdalinfo Block=WxH
+                    res_x, res_y = ds.res
+                    b = ds.bounds
+                    row.update(driver=ds.driver, n_bands=ds.count,
+                               compression=(ds.compression.name if ds.compression else None),
+                               block_x=block_x, block_y=block_y,
+                               crs=(ds.crs.to_string() if ds.crs else None),
+                               res_x=res_x, res_y=res_y,
+                               x_min=b.left, y_min=b.bottom, x_max=b.right, y_max=b.top)
+            rows.append(row)
+        _log.info('described %d rasters', len(rows))
+        df = pd.DataFrame(rows)
+        if full:
+            df = df[[c for c in cls.FULL_COLUMNS if c in df.columns]]
+        return df
+
+    @classmethod
+    def summary(cls, rasters, group_by=REGUNIT_SUFFIX, stats: bool = True, approx: bool = True) -> pd.DataFrame:
+        """
+        Group the rasters and aggregate: file count, dtype, nodata, value range, total size.
+
+        Parameters
+        ----------
+        rasters : str or Path or sequence
+            As for ``describe``.
+        group_by : str or callable
+            How to form each row's group key from its filename: a regex *stripped* from
+            the name (default ``_regunit_N...`` -> group tiles by base name); the literal
+            ``'dir'`` to group by parent-directory name; or a callable ``name -> key``.
+        stats, approx : bool
+            As for ``describe``.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Indexed by the group key, with ``n_files``, ``dtype``, ``nodata``,
+            ``size_gb_total`` (+ ``val_min`` / ``val_max`` when ``stats``).
+
+        Examples
+        --------
+        >>> RasterAnalyzer.summary(PATH.accum_rasters, group_by='dir')
+        >>> RasterAnalyzer.summary(tiles, group_by=lambda n: n.split('_')[0])
+
+        """
+        df = cls.describe(rasters, stats=stats, approx=approx)
+        df['group'] = cls._group_key(df, group_by)
+        agg = {'n_files': ('name', 'count'), 'dtype': ('dtype', 'first'),
+               'nodata': ('nodata', 'first'), 'size_gb_total': ('size_gb', 'sum')}
+        if stats:
+            agg.update(val_min=('val_min', 'min'), val_max=('val_max', 'max'))
+        return df.groupby('group').agg(**agg).round(4)
+
+    @staticmethod
+    def _group_key(df, group_by) -> pd.Series:
+        """
+        Derive a group key per row: a callable on the name, ``'dir'``, or a regex to strip.
+
+        Examples
+        --------
+        >>> RasterAnalyzer._group_key(df, 'dir')
+
+        """
+        if callable(group_by):
+            return df['name'].map(group_by)
+        if group_by == 'dir':
+            return df['dir']
+        return df['name'].str.replace(group_by, '', regex=True)
+
+    @staticmethod
+    def _paths(rasters) -> list:
+        """
+        Normalise a directory, a single path, or a list into a sorted list of raster paths.
+
+        Examples
+        --------
+        >>> RasterAnalyzer._paths(PATH.accum_rasters)
+
+        """
+        if isinstance(rasters, (str, Path)):
+            p = Path(rasters).expanduser()
+            return sorted(p.rglob('*.tif')) if p.is_dir() else [p]
+        return [Path(r).expanduser() for r in rasters]
