@@ -27,13 +27,13 @@ ROIS = {
     'fr_corsica'  : (-4.762, 41.384, 9.556, 51.097),    # France (mainland + Corsica!)
     
     # Zoom-ins
-    'fi'          : (22, 60, 30, 66),                   # without Northernmost tip
+    'fr'          : (-3.5, 42.5, 8.5, 50),              # France (without Corsica)
+    'iberia'      : (-9, 36.5, 0, 43.75),               # Spain + Portugal (mainland)
+    'gb'          : (-6, 50.5, 1.5, 56),                # Great Britain (with a bit of Ireland)
+    'it_north'    : (8.5, 44, 12.5, 46),                    # Italy (North)
+    'fi'          : (22, 60, 30, 66),                   # without northernmost tip
     'lv_lt'       : (21, 54, 26, 58),                   # Latvia + Lithuania
     'pl_cz'       : (15, 48, 23, 54),                   # Poland + Czechia + Slovakia
-    'it_north'    : (7, 44, 13, 47),                    # Italy (north)
-    'gb'          : (-6, 50.5, 1.5, 56),                # Great Britain (with a bit of Ireland)
-    'iberia'      : (-9, 36.5, 0, 43.75),               # Spain + Portugal (mainland)
-    'fr'          : (-3.5, 42.5, 8.5, 50),              # France (without Corsica)
 
     # Estonia
     'ee'          : (21.764, 57.509, 28.208, 59.822),
