@@ -73,3 +73,28 @@ def test_imshow_on_lonlat_axes():
     im = RasterPlotter.imshow(shade, extent=(-4.762, 9.556, 41.384, 51.097), ax=ax, cmap='gray', vmin=0, vmax=1)
     assert im in ax.images
     ax.figure.canvas.draw()          # would raise if the transform were unresolved
+
+
+def test_raster_plot_hillshade_switches_the_scale():
+    """
+    ``Raster.plot(hillshade=True)`` draws 0-1 shading; without it, the values' own range.
+
+    Examples
+    --------
+    >>> test_raster_plot_hillshade_switches_the_scale()
+
+    """
+    from plotea.maps.raster import Raster
+
+    class FakeRaster(Raster):
+        """A Raster whose read() returns a synthetic DEM, so the test needs no file."""
+
+        def read(self, extent=None, max_px=2000):
+            return np.ma.array(_dem()), (-4.762, 9.556, 41.384, 51.097)
+
+    _, ax  = BaseMap(bbox='fr', crs='laea_eu').plot()
+    values = FakeRaster('/nonexistent.tif', cmap='terrain', robust=False).plot(ax=ax, vmin=0, vmax=100)
+    shaded = FakeRaster('/nonexistent.tif').plot(ax=ax, hillshade=True)
+    assert values.get_clim() == (0, 100)
+    assert shaded.get_clim() == (0, 1)
+    assert shaded.get_array().min() >= 0 and shaded.get_array().max() <= 1

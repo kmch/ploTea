@@ -318,6 +318,84 @@ class Raster:
             data = data * self.scale
         return data, extent
 
+    def pixel_metres(self, extent, shape):
+        """
+        Pixel spacing ``(dx, dy)`` in metres for a window of ``shape`` over ``extent``.
+
+        Shading needs the spacing in metres to get slopes right; a lon/lat raster's own
+        degrees would make a coarse grid look like a cliff face. dx uses the cosine of the
+        mid-latitude, so a window over Lapland is not treated as one over Iberia.
+
+        Examples
+        --------
+        >>> Raster(dem_path).pixel_metres((10, 15, 45, 50), (200, 200))
+
+        """
+        lon0, lon1, lat0, lat1 = extent
+        mid = 0.5 * (lat0 + lat1)
+        return ((lon1 - lon0) / shape[1] * 111320.0 * np.cos(np.radians(mid)),
+                (lat1 - lat0) / shape[0] * 110540.0)
+
+    def plot(self, ax=None, bbox=None, max_px=2000, hillshade=False, cmap=None, vmin=None, vmax=None, vert_exag=2.5, **kwargs):
+        """
+        Draw the raster on an axes: its values, or shaded relief made from them.
+
+        The plotting entry point -- reads a decimated window and hands it to
+        ``RasterPlotter``. ``plot_map`` builds on this, adding a basemap and a colorbar.
+
+        Parameters
+        ----------
+        ax : LonLatAxes, optional
+            Axes to draw on; the current axes if None.
+        bbox : str or list or Bbox, optional
+            Window to read and draw; the whole raster if None.
+        max_px : int
+            Decimation target for the read.
+        hillshade : bool
+            Draw shaded relief from the values instead of the values themselves -- grey,
+            0 to 1, with the pixel spacing in metres worked out from the window. For a DEM
+            this is the terrain backdrop; on anything else it is meaningless.
+        cmap : str or Colormap or DiscreteCmap, optional
+            Overrides ``self.cmap``; a ``DiscreteCmap`` draws with its own norm.
+        vmin, vmax : float, optional
+            Colour limits; ``self.robust`` picks the 2-98% range when neither is given.
+        vert_exag : float
+            Vertical exaggeration, when ``hillshade``.
+        **kwargs
+            Passed to ``RasterPlotter.imshow`` (``alpha``, ``zorder``, ...).
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+
+        Examples
+        --------
+        >>> Raster(dem_path).plot(ax=ax, bbox='fr', hillshade=True)
+        >>> Raster(lulc_path, cmap=esa_worldcover()).plot(ax=ax, bbox='pl')
+
+        """
+        from plotea.maps.cmaps import DiscreteCmap
+        from plotea.maps.vector import Bbox
+
+        extent = Bbox.from_any(bbox).extent if bbox is not None else None
+        data, extent = self.read(extent, max_px)
+
+        if hillshade:
+            dx, dy = self.pixel_metres(extent, data.shape)
+            shade  = RasterPlotter.hillshaded(data, vert_exag=vert_exag, dx=dx, dy=dy)
+            kwargs = {'cmap': 'gray', 'vmin': 0, 'vmax': 1, **kwargs}
+            return RasterPlotter.imshow(shade, extent=extent, ax=ax, **kwargs)
+
+        cmap   = cmap if cmap is not None else self.cmap
+        scheme = cmap if isinstance(cmap, DiscreteCmap) else None
+        if scheme is not None:
+            kwargs = {'cmap': scheme.cmap, 'norm': scheme.norm, **kwargs}
+        else:
+            if self.robust and vmin is None and vmax is None and data.count():
+                vmin, vmax = (float(v) for v in np.nanpercentile(data.compressed(), [2, 98]))
+            kwargs = {'cmap': cmap, 'vmin': vmin, 'vmax': vmax, **kwargs}
+        return RasterPlotter.imshow(data, extent=extent, ax=ax, **kwargs)
+
     def clip(self, mode, out_file, **kwargs) -> 'Raster':
         """
         Clip to a region and write it, returning the new Raster. See ``RasterClipper``.
@@ -360,7 +438,7 @@ class Raster:
         _log.info('Reprojected %s to %s -> %s', self.path, target, out_file)
         return Raster(path=out_file)
 
-    def plot_map(self, bbox='eu', cmap=None, max_px=2000, vmin=None, vmax=None, label=None, title=None, figsize=(8, 8)):
+    def plot_map(self, bbox='eu', cmap=None, max_px=2000, hillshade=False, vmin=None, vmax=None, label=None, title=None, figsize=(8, 8)):
         """
         Plot the raster over ``bbox`` (default Europe) with an inset colorbar (fig01 overview style).
 
@@ -396,22 +474,14 @@ class Raster:
         from plotea.maps.cmaps import DiscreteCmap
         from plotea.maps.vector import Bbox
 
-        cmap = cmap if cmap is not None else self.cmap
-        extent = Bbox.from_any(bbox).extent
-        data, extent = self.read(extent, max_px)
+        cmap   = cmap if cmap is not None else self.cmap
         scheme = cmap if isinstance(cmap, DiscreteCmap) else None
-        kwargs = {'cmap': scheme.cmap if scheme else cmap, 'zorder': 0.5}
-        if scheme is not None:
-            kwargs['norm'] = scheme.norm
-        else:
-            if self.robust and vmin is None and vmax is None and data.count():
-                vmin, vmax = (float(v) for v in np.nanpercentile(data.compressed(), [2, 98]))
-            kwargs['vmin'], kwargs['vmax'] = vmin, vmax
-        style = replace(BASEMAP_GREY, land='#d9d9d9', graticule='black', border='white')
+        style  = replace(BASEMAP_GREY, land='#d9d9d9', graticule='black', border='white')
         # Grey land + blue ocean under the raster (so land outside it still shows), coastline
         # off -- the raster's own nodata edge is the coast, no coarse line over the data.
         fig, ax = BaseMap(bbox=bbox, crs=laea_eu(), style=style, coastline=False, graticule_step=10).plot(figsize=figsize)
-        im = RasterPlotter.imshow(data, extent=extent, ax=ax, **kwargs)
+        im = self.plot(ax=ax, bbox=bbox, max_px=max_px, hillshade=hillshade,
+                       cmap=cmap, vmin=vmin, vmax=vmax, zorder=0.5)
         # Horizontal colorbar in the top-left corner -- over the NW-Atlantic / Iceland, off the data.
         wide = 0.46 if scheme is not None else 0.30            # class rasters get a wider bar for their labels
         cax = ax.inset_axes([0.04, 0.90, wide, 0.02])
