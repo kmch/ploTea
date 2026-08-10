@@ -130,7 +130,9 @@ def panel_layout(fig, crs, main, rows, width: float = 16.0, gap: float = 0.015, 
     _log.info('main + %d rows (%s zoom panels)', len(rows), sum(len(r) for r in rows))
     return ax_main, zoom_axes
 
-ZOOMS = ['fi', 'lv_lt', 'pl_cz', 'it_north', 'gb', 'iberia', 'fr']
+# Order matters: candidates deal panels from this list, so it fixes which region is b,
+# c, d ... Reads west to east along the top row, then north to south along the bottom.
+ZOOMS = ['fr', 'iberia', 'gb', 'fi', 'pl_cz', 'it_north', 'lv_lt']
 STYLE = BASEMAP_GREY
 BOX   = dict(edgecolor='#e06666', linestyle=(0, (4, 3)), facecolor='none', linewidth=1.2, zorder=5)
 
@@ -172,6 +174,7 @@ class LayoutPreview:
             'rows_4_3':   lambda fig: self.rows(fig, self.chunk([4, 3])),
             'rows_2_2_3': lambda fig: self.rows(fig, self.chunk([2, 2, 3])),
             'rows_3_2_2': lambda fig: self.rows(fig, self.chunk([3, 2, 2])),
+            'beside_3_below_4': lambda fig: self.beside_and_below(fig, n_beside=3),
             'grid_4x3':   lambda fig: self.grid(fig, ncols=4, nrows=3, main_span=2),
             'grid_3x3':   lambda fig: self.grid(fig, ncols=3, nrows=3, main_span=2),
         }
@@ -218,6 +221,54 @@ class LayoutPreview:
         for ax, box in zip(axes, boxes):
             self.basemap(ax, box)
         return ax_main, axes, boxes
+
+    def beside_and_below(self, fig, n_beside=3, gap=0.015, margin=0.02):
+        """
+        Zooms beside the overview at its full height, then a full-width row underneath.
+
+        The panels beside the overview are as tall as it is, so the top block reads as one
+        band; the row below is justified to the whole figure width, so its panels come out
+        shorter and wider. Two sizes of panel, not seven -- the eye groups them at a glance.
+
+        Parameters
+        ----------
+        n_beside : int
+            How many zooms sit beside the overview; the rest go in the row below.
+
+        Examples
+        --------
+        >>> LayoutPreview().beside_and_below(plt.figure(), n_beside=3)
+
+        """
+        beside, below = self.zooms[:n_beside], self.zooms[n_beside:]
+        main_aspect   = _aspect(self.main, self.crs)
+        beside_aspect = [_aspect(z, self.crs) for z in beside]
+        below_aspect  = [_aspect(z, self.crs) for z in below]
+
+        # Layout units: the overview is 1 tall, so a panel beside it is 1 tall and its own
+        # aspect wide. The row below justifies to whatever total width that comes to.
+        top_w    = main_aspect + gap + sum(beside_aspect) + (len(beside) - 1) * gap
+        below_h  = (top_w - (len(below) - 1) * gap) / sum(below_aspect) if below else 0.0
+        total_h  = 1.0 + (gap + below_h if below else 0.0)
+        box      = 1.0 - 2 * margin
+        fig.set_size_inches(self.width, self.width * (box * total_h) / (top_w * box))
+        sx, sy   = box / top_w, box / total_h
+
+        def rect(x, y, w, h):
+            """Layout-unit box (y from the bottom) -> figure-fraction rectangle."""
+            return [margin + x * sx, margin + y * sy, w * sx, h * sy]
+
+        top_y   = total_h - 1.0
+        ax_main = self.axes(fig, rect(0.0, top_y, main_aspect, 1.0), self.main)
+        axes, x = [], main_aspect + gap
+        for name, aspect in zip(beside, beside_aspect):
+            axes.append(self.axes(fig, rect(x, top_y, aspect, 1.0), name))
+            x += aspect + gap
+        x = 0.0
+        for name, aspect in zip(below, below_aspect):
+            axes.append(self.axes(fig, rect(x, 0.0, aspect * below_h, below_h), name))
+            x += aspect * below_h + gap
+        return ax_main, axes, list(beside) + list(below)
 
     def grid(self, fig, ncols=4, nrows=3, main_span=2, gap=0.012, margin=0.02):
         """
