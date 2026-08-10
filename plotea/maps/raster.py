@@ -99,6 +99,75 @@ def hillshade(dem, azdeg: float = 315.0, altdeg: float = 45.0, vert_exag: float 
 
 class Raster:
     """
+    An abstract raster class.
+
+    Can be initialised with a file path, an xarray DataArray, both, or neither.
+    Data is loaded from disk lazily — only when first accessed via `.data`.
+
+    TODO: vrt from h2smart.
+
+    Parameters
+    ----------
+    path : str or Path, optional
+    data : xarray.DataArray, optional
+    """
+    def __init__(self, path=None, data=None):
+        self.path = Path(path) if path is not None else None
+        self._data = data
+    def __repr__(self):
+        """
+        Return a string representation of the Raster object, showing the path and
+        whether the associated data has been loaded into memory.
+
+        Returns
+        -------
+        str
+            String of the form "Raster(path=..., data=loaded)" if data is loaded,
+            or "Raster(path=..., data=not loaded)" if not.
+        """
+        data_status = 'loaded' if self._data is not None else 'not loaded'
+        return f"Raster(path={self.path}, data={data_status})"
+    def info(self):
+        print(f"path      : {self.path}")
+        print(f"has data  : {self._data is not None}")
+        if self.data is not None:
+            print(f"shape     : {self.data.shape}")
+            print(f"dtype     : {self.data.dtype}")
+            print(f"crs       : {self.crs}")
+            print(f"bounds    : {self.bounds}")
+            print(f"resolution: {self.resolution}")
+
+    # Data access (lazy) ------------------------------------------------------------------
+    @property
+    def data(self) -> xr.DataArray | None:
+        if self._data is None and self.path is not None:
+            self._data = rioxarray.open_rasterio(self.path, masked=True)
+        return self._data
+    # This is the setter for the 'data' property of the Raster class.
+    # It allows assignment like `raster.data = new_data`, which updates the internal
+    # _data attribute. This is useful for replacing or injecting new xarray.DataArray
+    # content without changing the file path.
+    @data.setter
+    def data(self, value):
+        self._data = value
+
+    # Spatial metadata — derived from data on demand ---------------------------- 
+    @property
+    def crs(self):
+        return self.data.rio.crs if self.data is not None else None
+    @property
+    def transform(self):
+        return self.data.rio.transform() if self.data is not None else None
+    @property
+    def bounds(self):
+        return self.data.rio.bounds() if self.data is not None else None
+    @property
+    def resolution(self):
+        return self.data.rio.resolution() if self.data is not None else None
+ 
+
+class Raster:
+    """
     A raster file that reads a decimated window and plots itself on a Europe basemap.
 
     Bundles a file ``path`` with its plotting config -- ``cmap`` and the decimation

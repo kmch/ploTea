@@ -100,4 +100,12 @@ BASEMAP_MUTED = BasemapStyle(land='#efe9e1', ocean='#dce6ec', coastline='#5b5b5b
 # backdrop used by exposure/hazard figures, and the base a hillshade sits on.
 BASEMAP_GREY = BasemapStyle(land='#d9d9d9', ocean='#cfe1f2', coastline='#8c8c8c', coastline_width=0.4, border='#a6a6a6', border_width=0.3, graticule='#b0b0b0')
 
+BASEMAP_STYLE = BasemapStyle(
+    land='dimgray', ocean='#cfe1f2', 
+    coastline='#8c8c8c', coastline_width=1, 
+    border='white', border_width=1, 
+    graticule='white', graticule_width=1
+)
+
+
 _STYLES = {'plain': BASEMAP_PLAIN, 'muted': BASEMAP_MUTED, 'grey': BASEMAP_GREY}

@@ -8,6 +8,6 @@ from plotea.maps.carto import *
 from plotea.maps.crs import *
 from plotea.maps.registry import *
 from plotea.maps.vector import *
-from plotea.maps.mosaic import *
+from plotea.maps.layout import *
 from plotea.maps.raster import *
 from plotea.maps.cmaps import *

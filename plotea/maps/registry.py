@@ -19,12 +19,22 @@ _log = get_logger(__name__)
 ROIS = {
     'eu'          : (-10.000, 35.000, 30.000, 72.000),
     'eu_wide'     : (-15.000, 35.000, 35.000, 72.000),
-    'iberia'      : (-9.479, 36.025, 4.322, 43.764),    # Spain + Portugal (mainland)
+    
     
     # Country-level ROIs (mainland only)
     'pl'          : (12.128, 47.020, 26.105, 56.838),   # Poland + 2 deg padding
     'uk'          : (-10.390, 50.021, 1.746, 60.831),   # UK + Ireland
-    'fr'          : (-4.762, 41.384, 9.556, 51.097),    # France (mainland)
+    'fr_corsica'  : (-4.762, 41.384, 9.556, 51.097),    # France (mainland + Corsica!)
+    
+    # Zoom-ins
+    'fi'          : (22, 60, 30, 66),                   # without Northernmost tip
+    'lv_lt'       : (21, 54, 26, 58),                   # Latvia + Lithuania
+    'pl_cz'       : (15, 48, 23, 54),                   # Poland + Czechia + Slovakia
+    'it_north'    : (7, 44, 13, 47),                    # Italy (north)
+    'gb'          : (-6, 50.5, 1.5, 56),                # Great Britain (with a bit of Ireland)
+    'iberia'      : (-9, 36.5, 0, 43.75),               # Spain + Portugal (mainland)
+    'fr'          : (-3.5, 42.5, 8.5, 50),              # France (without Corsica)
+
     # Estonia
     'ee'          : (21.764, 57.509, 28.208, 59.822),
     'ee_parnu'    : (24.491, 57.973, 25.958, 59.1308),

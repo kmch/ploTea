@@ -1,5 +1,5 @@
 """
-Tests for the discrete colour scale, projected aspect, and panel mosaic.
+Tests for the discrete colour scale, projected aspect, and panel layout.
 
 """
 import matplotlib
@@ -14,7 +14,7 @@ from plotea.generic.scales import discrete, discrete_colorbar
 from plotea.maps.base import BaseMap
 from plotea.maps.carto import projected_aspect, visible_bbox
 from plotea.maps.crs import laea_eu
-from plotea.maps.mosaic import panel_mosaic
+from plotea.maps.layout import panel_layout
 from plotea.maps.vector import Bbox
 
 
@@ -84,18 +84,18 @@ def test_projected_aspect_positive():
     assert a_po > a_fr                              # Po valley is much wider than tall
 
 
-def test_panel_mosaic_shape_and_placement():
+def test_panel_layout_shape_and_placement():
     """
-    ``panel_mosaic`` returns axes matching the row shape, main left of the zooms.
+    ``panel_layout`` returns axes matching the row shape, main left of the zooms.
 
     Examples
     --------
-    >>> test_panel_mosaic_shape_and_placement()
+    >>> test_panel_layout_shape_and_placement()
 
     """
     fig = plt.figure()
     rows = [['fr', 'greater_london'], ['poland_central', 'po_valley']]
-    ax_main, zooms = panel_mosaic(fig, laea_eu(), main='eu', rows=rows)
+    ax_main, zooms = panel_layout(fig, laea_eu(), main='eu', rows=rows)
     assert [len(r) for r in zooms] == [2, 2]
     assert type(ax_main).__name__ == 'LonLatAxes'
     # main is left of every zoom
@@ -121,17 +121,17 @@ def test_visible_bbox_contains_view():
     assert lo0 < vlo0 and lo1 > vlo1 and la0 < vla0 and la1 > vla1
 
 
-def test_panel_mosaic_top_alignment():
+def test_panel_layout_top_alignment():
     """
     The overview top edge aligns with the top of every panel in the upper zoom row.
 
     Examples
     --------
-    >>> test_panel_mosaic_top_alignment()
+    >>> test_panel_layout_top_alignment()
 
     """
     fig = plt.figure()
-    ax_main, zooms = panel_mosaic(fig, laea_eu(), main='eu',
+    ax_main, zooms = panel_layout(fig, laea_eu(), main='eu',
         rows=[['fr', 'greater_london'], ['poland_central', 'po_valley']])
     top = ax_main.get_position().y1
     for ax in zooms[0]:

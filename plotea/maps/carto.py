@@ -261,7 +261,7 @@ def new_axes(fig, crs: ccrs.CRS, spec=None, rect=None):
         in. When None (and ``rect`` is None) the axes fills the figure as a subplot.
     rect : sequence of float, optional
         An explicit ``[left, bottom, width, height]`` in figure fractions. Used by
-        the mosaic to place equal-aspect panels exactly, so they align without the
+        a layout to place equal-aspect panels exactly, so they align without the
         drift a GridSpec cell allows. Takes precedence over ``spec``.
 
     Returns
@@ -396,7 +396,7 @@ def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: boo
             gl.right_labels = False
             if graticule_inward:
                 # Negative padding pulls the labels inside the frame, so on abutting
-                # mosaic panels they do not stick out and collide with the neighbour.
+                # abutting layout panels they do not stick out and collide with the neighbour.
                 gl.xpadding = -12
                 gl.ypadding = -12
                 gl.xlabel_style = {'va': 'top', 'color': style.graticule}
@@ -436,7 +436,7 @@ def projected_aspect(extent, crs: ccrs.CRS) -> float:
     """
     Return the width/height ratio of a lon/lat ``extent`` once projected into ``crs``.
 
-    This is what a mosaic needs to size panels: a map axes is locked to equal
+    This is what a layout needs to size panels: a map axes is locked to equal
     scaling, so its on-screen height is set by this ratio, not by the cell it sits
     in. The lon/lat box is projected with ``project_geometry`` -- the exact call
     cartopy's ``set_extent`` uses -- so the aspect matches the rendered axes to
