@@ -1,10 +1,5 @@
 """
-Raster on a map: an array display, a shaded-relief background, and a ``Raster`` class.
-
-``RasterPlotter`` does no IO -- you pass a 2D array plus its lon/lat ``extent``. ``Raster``
-*does* read files, lazily importing ``rasterio`` and ``rioxarray`` (optional plotea
-dependencies), so ``import plotea`` works without them. ``RasterClipper`` cuts a raster to a
-region; ``RasterAnalyzer`` tabulates several.
+Raster class and related utilities.
 
 """
 import math
@@ -17,105 +12,9 @@ from matplotlib.colors import LightSource
 
 from plotea.log import get_logger
 
-__all__ = ['RasterPlotter', 'Raster', 'RasterClipper', 'RasterAnalyzer']
+__all__ = ['Raster', 'RasterAnalyzer', 'RasterClipper', 'RasterPlotter']
 
 _log = get_logger(__name__)
-
-
-class RasterPlotter:
-    """
-    Draw raster arrays on a map: the array itself, or shaded relief made from it.
-
-    Neither method does any IO -- you pass a 2D array plus its lon/lat ``extent``, so the
-    same pair works for a file read through ``Raster``, a DEM window, or anything else
-    already in memory. Drawn on a ``LonLatAxes``, which assumes lon/lat, so ``imshow``
-    needs no ``transform``; on a stock projected ``GeoAxes`` pass
-    ``transform=ccrs.PlateCarree()``.
-
-    Examples
-    --------
-    >>> RasterPlotter.imshow(dem, extent=(-10, 35, 35, 72), ax=ax, cmap='terrain')
-    >>> shade = RasterPlotter.hillshaded(dem, vert_exag=2.5, dx=dx, dy=dy)
-
-    """
-
-    @staticmethod
-    def imshow(data, extent, ax=None, origin: str = 'upper', **kwargs):
-        """
-        Draw a 2D array over its lon/lat ``extent`` on a map axes.
-
-        Parameters
-        ----------
-        data : array-like
-            The 2D array (or RGBA) to display; a masked array shows nodata as transparent.
-        extent : sequence of float
-            ``(lon_min, lon_max, lat_min, lat_max)`` in degrees -- the array's bounds.
-        ax : LonLatAxes, optional
-            Map axes to draw on; the current axes if None.
-        origin : str
-            'upper' (row 0 at the top, the usual raster convention) or 'lower'.
-        **kwargs
-            Passed to ``imshow`` (e.g. ``cmap``, ``alpha``, ``zorder``, ``vmin``).
-
-        Returns
-        -------
-        matplotlib.image.AxesImage
-
-        Notes
-        -----
-        On a ``LonLatAxes`` the lon/lat ``extent`` needs no ``transform``; on a stock
-        projected ``GeoAxes`` pass ``transform=ccrs.PlateCarree()``.
-
-        Examples
-        --------
-        >>> RasterPlotter.imshow(dem, extent=(-10, 35, 35, 72), ax=ax, cmap='gray')
-
-        """
-        if ax is None:
-            ax = plt.gca()
-        return ax.imshow(data, extent=extent, origin=origin, **kwargs)
-
-
-    @staticmethod
-    def hillshaded(dem, azdeg: float = 315.0, altdeg: float = 45.0, vert_exag: float = 1.0, dx: float = 1.0, dy: float = 1.0):
-        """
-        Return shaded-relief intensity in ``[0, 1]`` from an elevation array.
-
-        Parameters
-        ----------
-        dem : array-like
-            Elevation grid. A masked array keeps its mask (nodata -> transparent when
-            drawn), and its masked cells are filled flat before shading so the coastline
-            gets no false cliff.
-        azdeg : float
-            Illumination azimuth in degrees (315 = light from the north-west).
-        altdeg : float
-            Illumination altitude above the horizon, in degrees.
-        vert_exag : float
-            Vertical exaggeration; raise it to bring out relief in flat terrain.
-        dx, dy : float
-            Pixel spacing in the elevation's own units (e.g. metres). Passing the true
-            spacing keeps the shading physically sensible across resolutions -- with the
-            default ``1`` a coarse grid over-saturates, since a cell's rise is compared
-            to a one-unit run.
-
-        Returns
-        -------
-        numpy.ndarray or numpy.ma.MaskedArray
-            Intensity in ``[0, 1]``; draw it with ``imshow(..., cmap='gray')``.
-
-        Examples
-        --------
-        >>> shade = RasterPlotter.hillshaded(dem, vert_exag=1.5, dx=2000, dy=2000)   # ~2 km pixels
-        >>> RasterPlotter.imshow(shade, extent=ext, ax=ax, cmap='gray', vmin=0, vmax=1, zorder=0.5)
-
-        """
-        arr = np.ma.asarray(dem).astype(float)
-        mask = np.ma.getmaskarray(arr)
-        filled = arr.filled(np.ma.median(arr)) if mask.any() else np.asarray(arr)
-        intensity = LightSource(azdeg=azdeg, altdeg=altdeg).hillshade(filled, vert_exag=vert_exag, dx=dx, dy=dy)
-        return np.ma.array(intensity, mask=mask)
-
 
 class Raster:
     """
@@ -178,17 +77,28 @@ class Raster:
         return f'Raster(path={self.path}, data={"loaded" if self._data is not None else "not loaded"})'
 
     @property
-    def name(self) -> str:
+    def bounds(self):
         """
-        The file stem -- the default colorbar label and plot title.
+        ``(minx, miny, maxx, maxy)``, or None when there is no data yet.
 
         Examples
         --------
-        >>> Raster('/data/merit_twi.vrt').name
-        'merit_twi'
+        >>> Raster('/data/merit_twi.vrt').bounds
 
         """
-        return self.path.stem if self.path is not None else ''
+        return self.data.rio.bounds() if self.data is not None else None
+
+    @property
+    def crs(self):
+        """
+        The raster's CRS, or None when there is no data yet.
+
+        Examples
+        --------
+        >>> Raster('/data/merit_twi.vrt').crs
+
+        """
+        return self.data.rio.crs if self.data is not None else None
 
     @property
     def data(self):
@@ -210,40 +120,17 @@ class Raster:
         self._data = value
 
     @property
-    def crs(self):
+    def name(self) -> str:
         """
-        The raster's CRS, or None when there is no data yet.
+        The file stem -- the default colorbar label and plot title.
 
         Examples
         --------
-        >>> Raster('/data/merit_twi.vrt').crs
+        >>> Raster('/data/merit_twi.vrt').name
+        'merit_twi'
 
         """
-        return self.data.rio.crs if self.data is not None else None
-
-    @property
-    def transform(self):
-        """
-        The affine transform, or None when there is no data yet.
-
-        Examples
-        --------
-        >>> Raster('/data/merit_twi.vrt').transform
-
-        """
-        return self.data.rio.transform() if self.data is not None else None
-
-    @property
-    def bounds(self):
-        """
-        ``(minx, miny, maxx, maxy)``, or None when there is no data yet.
-
-        Examples
-        --------
-        >>> Raster('/data/merit_twi.vrt').bounds
-
-        """
-        return self.data.rio.bounds() if self.data is not None else None
+        return self.path.stem if self.path is not None else ''
 
     @property
     def resolution(self):
@@ -257,66 +144,59 @@ class Raster:
         """
         return self.data.rio.resolution() if self.data is not None else None
 
-    def info(self):
+    @property
+    def transform(self):
         """
-        Log the path, shape, dtype, CRS, bounds and resolution. Reads the data if needed.
+        The affine transform, or None when there is no data yet.
 
         Examples
         --------
-        >>> Raster('/data/merit_twi.vrt').info()
+        >>> Raster('/data/merit_twi.vrt').transform
 
         """
-        _log.info('%s: has data=%s', self.path, self._data is not None)
-        if self.data is not None:
-            _log.info('shape=%s dtype=%s crs=%s bounds=%s resolution=%s',
-                      self.data.shape, self.data.dtype, self.crs, self.bounds, self.resolution)
-        return self
+        return self.data.rio.transform() if self.data is not None else None
 
-    def read(self, extent=None, max_px: int = 2000):
+    def align_to(self, reference, out_file, resampling=None) -> "Raster":
         """
-        Read a decimated window over ``extent`` (lon0, lon1, lat0, lat1); whole raster if None.
+        Reproject and snap *src* to exactly match *reference*'s CRS, resolution,
+        and extent, then write to *out_file*.
 
-        Decimates to about ``max_px`` on the longer side using ``self.resampling``, so a
-        continent-sized raster can be plotted without reading it at full resolution.
+        Uses rioxarray.reproject_match() under the hood.
 
         Parameters
         ----------
-        extent : sequence of float, optional
-            ``(lon_min, lon_max, lat_min, lat_max)``; the raster's own bounds if None.
-        max_px : int
-            Target size of the longer output side.
+        reference : Raster
+        out_file : str or Path
+        resampling : rasterio.enums.Resampling
+            Default bilinear (suitable for continuous data like bdod).
+            Use Resampling.nearest for categorical data.
 
         Returns
         -------
-        data : numpy.ma.MaskedArray
-        extent : tuple
-            The extent actually read (echoed for plotting).
+        Raster
+            New Raster aligned to *reference* and saved to *out_file*.
+        """
+        out_file = Path(out_file)
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        from rasterio.enums import Resampling
+        resampling = resampling if resampling is not None else Resampling.bilinear
+        aligned = self.data.rio.reproject_match(reference.data, resampling=resampling)
+        aligned.rio.to_raster(out_file, driver='GTiff')
+        _log.info('Aligned %s -> %s', self.path, out_file)
+        return Raster(path=out_file)
+
+    def clip(self, mode, out_file, **kwargs) -> 'Raster':
+        """
+        Clip to a region and write it, returning the new Raster. See ``RasterClipper``.
 
         Examples
         --------
-        >>> data, extent = Raster('/data/merit_twi.vrt').read((-10, 30, 35, 72))
+        >>> Raster('/data/merit_elv.vrt').clip('roi', out, roi='parnu')
 
         """
-        import rasterio
-        from rasterio.enums import Resampling
-        from rasterio.windows import from_bounds
-
         if self.path is None:
-            raise ValueError('read needs a file: build the Raster with a path.')
-        with rasterio.open(self.path) as ds:
-            if extent is None:
-                b = ds.bounds
-                extent = (b.left, b.right, b.bottom, b.top)
-            lon0, lon1, lat0, lat1 = extent
-            win = from_bounds(lon0, lat0, lon1, lat1, ds.transform)
-            scale = min(1.0, max_px / max(win.width, win.height))
-            out = (max(1, round(win.height * scale)), max(1, round(win.width * scale)))
-            data = ds.read(1, window=win, out_shape=out, resampling=Resampling[self.resampling], masked=True, boundless=True)
-            if ds.nodata is not None:                               # external .ovr overviews may drop the nodata -> mask it explicitly
-                data = np.ma.masked_equal(data, ds.nodata)
-        if self.scale != 1.0:                                       # -> physical units for the colour scale
-            data = data * self.scale
-        return data, extent
+            raise ValueError('clip needs a file: build the Raster with a path.')
+        return RasterClipper.clip(self.path, mode, out_file, **kwargs)
 
     def get_dx_dy(self, extent, shape):
         """
@@ -336,6 +216,43 @@ class Raster:
         return ((lon1 - lon0) / shape[1] * 111320.0 * np.cos(np.radians(mid)),
                 (lat1 - lat0) / shape[0] * 110540.0)
 
+    def info(self):
+        """
+        Log the path, shape, dtype, CRS, bounds and resolution. Reads the data if needed.
+
+        Examples
+        --------
+        >>> Raster('/data/merit_twi.vrt').info()
+
+        """
+        _log.info('%s: has data=%s', self.path, self._data is not None)
+        if self.data is not None:
+            _log.info('shape=%s dtype=%s crs=%s bounds=%s resolution=%s',
+                      self.data.shape, self.data.dtype, self.crs, self.bounds, self.resolution)
+        return self
+
+    def mask_to_streams(self, stream_raster) -> "Raster":
+        """
+        Mask a raster to stream pixels only.
+
+        Stream pixels are defined as cells where the stream raster is non-zero
+        and not NaN. All other pixels are set to NaN.
+
+        Parameters
+        ----------
+        stream_raster : Raster
+            Stream network raster (e.g. from reproduce_hy90m).
+            Non-zero, non-NaN cells are treated as stream pixels.
+
+        Returns
+        -------
+        Raster
+            New Raster with data only at stream pixels.
+        """
+        streams = stream_raster.data
+        stream_mask = (streams.values != 0) & ~np.isnan(streams.values.astype(float))
+        masked_data = self.data.where(stream_mask)
+        return Raster(data=masked_data)
     def plot(self, ax=None, bbox=None, max_px=2000, hillshade=False, cmap=None, vmin=None, vmax=None, vert_exag=2.5, **kwargs):
         """
         Draw the raster on an axes: its values, or shaded relief made from them.
@@ -395,48 +312,6 @@ class Raster:
                 vmin, vmax = (float(v) for v in np.nanpercentile(data.compressed(), [2, 98]))
             kwargs = {'cmap': cmap, 'vmin': vmin, 'vmax': vmax, **kwargs}
         return RasterPlotter.imshow(data, extent=extent, ax=ax, **kwargs)
-
-    def clip(self, mode, out_file, **kwargs) -> 'Raster':
-        """
-        Clip to a region and write it, returning the new Raster. See ``RasterClipper``.
-
-        Examples
-        --------
-        >>> Raster('/data/merit_elv.vrt').clip('roi', out, roi='parnu')
-
-        """
-        if self.path is None:
-            raise ValueError('clip needs a file: build the Raster with a path.')
-        return RasterClipper.clip(self.path, mode, out_file, **kwargs)
-
-    def reproject(self, dst_crs: int, out_file=None) -> 'Raster':
-        """
-        Write a copy reprojected to ``dst_crs`` (an EPSG code) and return it.
-
-        Examples
-        --------
-        >>> Raster('/data/merit_elv.vrt').reproject(3035)
-
-        """
-        import rasterio
-        from rasterio.enums import Resampling
-        from rasterio.warp import calculate_default_transform, reproject
-
-        if self.path is None:
-            raise ValueError('reproject needs a file: build the Raster with a path.')
-        target   = f'EPSG:{dst_crs}'
-        out_file = Path(out_file) if out_file is not None else self.path.parent / f'{self.path.stem}_reproj_{dst_crs}.tif'
-        with rasterio.open(self.path) as src:
-            transform, width, height = calculate_default_transform(src.crs, target, src.width, src.height, *src.bounds)
-            meta = src.meta.copy()
-            meta.update(crs=target, transform=transform, width=width, height=height)
-            with rasterio.open(out_file, 'w', **meta) as dst:
-                for band in range(1, src.count + 1):
-                    reproject(source=rasterio.band(src, band), destination=rasterio.band(dst, band),
-                              src_transform=src.transform, src_crs=src.crs,
-                              dst_transform=transform, dst_crs=target, resampling=Resampling.nearest)
-        _log.info('Reprojected %s to %s -> %s', self.path, target, out_file)
-        return Raster(path=out_file)
 
     def plot_map(self, bbox='eu', cmap=None, max_px=2000, hillshade=False, vmin=None, vmax=None, label=None, title=None, figsize=(8, 8)):
         """
@@ -500,57 +375,237 @@ class Raster:
             ax.set_title(title)
         return fig, ax
 
-    def align_to(self, reference, out_file, resampling=None) -> "Raster":
+    def read(self, extent=None, max_px: int = 2000):
         """
-        Reproject and snap *src* to exactly match *reference*'s CRS, resolution,
-        and extent, then write to *out_file*.
+        Read a decimated window over ``extent`` (lon0, lon1, lat0, lat1); whole raster if None.
 
-        Uses rioxarray.reproject_match() under the hood.
+        Decimates to about ``max_px`` on the longer side using ``self.resampling``, so a
+        continent-sized raster can be plotted without reading it at full resolution.
 
         Parameters
         ----------
-        reference : Raster
-        out_file : str or Path
-        resampling : rasterio.enums.Resampling
-            Default bilinear (suitable for continuous data like bdod).
-            Use Resampling.nearest for categorical data.
+        extent : sequence of float, optional
+            ``(lon_min, lon_max, lat_min, lat_max)``; the raster's own bounds if None.
+        max_px : int
+            Target size of the longer output side.
 
         Returns
         -------
-        Raster
-            New Raster aligned to *reference* and saved to *out_file*.
+        data : numpy.ma.MaskedArray
+        extent : tuple
+            The extent actually read (echoed for plotting).
+
+        Examples
+        --------
+        >>> data, extent = Raster('/data/merit_twi.vrt').read((-10, 30, 35, 72))
+
         """
-        out_file = Path(out_file)
-        out_file.parent.mkdir(parents=True, exist_ok=True)
+        import rasterio
         from rasterio.enums import Resampling
-        resampling = resampling if resampling is not None else Resampling.bilinear
-        aligned = self.data.rio.reproject_match(reference.data, resampling=resampling)
-        aligned.rio.to_raster(out_file, driver='GTiff')
-        _log.info('Aligned %s -> %s', self.path, out_file)
+        from rasterio.windows import from_bounds
+
+        if self.path is None:
+            raise ValueError('read needs a file: build the Raster with a path.')
+        with rasterio.open(self.path) as ds:
+            if extent is None:
+                b = ds.bounds
+                extent = (b.left, b.right, b.bottom, b.top)
+            lon0, lon1, lat0, lat1 = extent
+            win = from_bounds(lon0, lat0, lon1, lat1, ds.transform)
+            scale = min(1.0, max_px / max(win.width, win.height))
+            out = (max(1, round(win.height * scale)), max(1, round(win.width * scale)))
+            data = ds.read(1, window=win, out_shape=out, resampling=Resampling[self.resampling], masked=True, boundless=True)
+            if ds.nodata is not None:                               # external .ovr overviews may drop the nodata -> mask it explicitly
+                data = np.ma.masked_equal(data, ds.nodata)
+        if self.scale != 1.0:                                       # -> physical units for the colour scale
+            data = data * self.scale
+        return data, extent
+
+    def reproject(self, dst_crs: int, out_file=None) -> 'Raster':
+        """
+        Write a copy reprojected to ``dst_crs`` (an EPSG code) and return it.
+
+        Examples
+        --------
+        >>> Raster('/data/merit_elv.vrt').reproject(3035)
+
+        """
+        import rasterio
+        from rasterio.enums import Resampling
+        from rasterio.warp import calculate_default_transform, reproject
+
+        if self.path is None:
+            raise ValueError('reproject needs a file: build the Raster with a path.')
+        target   = f'EPSG:{dst_crs}'
+        out_file = Path(out_file) if out_file is not None else self.path.parent / f'{self.path.stem}_reproj_{dst_crs}.tif'
+        with rasterio.open(self.path) as src:
+            transform, width, height = calculate_default_transform(src.crs, target, src.width, src.height, *src.bounds)
+            meta = src.meta.copy()
+            meta.update(crs=target, transform=transform, width=width, height=height)
+            with rasterio.open(out_file, 'w', **meta) as dst:
+                for band in range(1, src.count + 1):
+                    reproject(source=rasterio.band(src, band), destination=rasterio.band(dst, band),
+                              src_transform=src.transform, src_crs=src.crs,
+                              dst_transform=transform, dst_crs=target, resampling=Resampling.nearest)
+        _log.info('Reprojected %s to %s -> %s', self.path, target, out_file)
         return Raster(path=out_file)
 
-    def mask_to_streams(self, stream_raster) -> "Raster":
-        """
-        Mask a raster to stream pixels only.
 
-        Stream pixels are defined as cells where the stream raster is non-zero
-        and not NaN. All other pixels are set to NaN.
+class RasterAnalyzer:
+    """
+    Report structure and value ranges of rasters as a pandas DataFrame.
+
+    ``describe`` returns one row per raster (generic, no assumptions about naming);
+    ``summary`` groups those rows via ``group_by`` and aggregates per group.
+
+    Examples
+    --------
+    >>> RasterAnalyzer.describe(['a_regunit_43.tif', 'a_regunit_44.tif'])
+    >>> RasterAnalyzer.summary(PATH.accum_rasters, group_by='dir')
+
+    """
+
+    REGUNIT_SUFFIX = r'_regunit_\d+.*'   # strip this from a tile filename to get its base name
+
+    # gdalinfo-style column order for ``full`` (name/dir prepended, val_mean kept if present)
+    FULL_COLUMNS = ['name', 'dir', 'size_gb', 'driver', 'width', 'height', 'n_bands', 'dtype',
+                    'nodata', 'val_min', 'val_max', 'val_mean', 'compression', 'block_x', 'block_y',
+                    'crs', 'res_x', 'res_y', 'x_min', 'y_min', 'x_max', 'y_max']
+
+    @classmethod
+    def describe(cls, rasters, stats: bool = True, approx: bool = True, full: bool = False) -> pd.DataFrame:
+        """
+        Return a DataFrame with one row per raster: name, dir, dtype, nodata, dims, size (+ value range).
 
         Parameters
         ----------
-        stream_raster : Raster
-            Stream network raster (e.g. from reproduce_hy90m).
-            Non-zero, non-NaN cells are treated as stream pixels.
+        rasters : str or Path or sequence
+            A directory (searched recursively for ``*.tif``), a single raster, or a
+            list of paths.
+        stats : bool
+            Also compute the value range (``val_min`` / ``val_max`` / ``val_mean``).
+            Skip it (``False``) for a fast structure-only check of huge rasters.
+        approx : bool
+            When ``stats``, use approximate statistics (overviews / subsampling) --
+            much faster on large rasters.
+        full : bool
+            Also report the full gdalinfo-style set of columns: ``driver``, ``n_bands``,
+            ``compression``, block size (``block_x`` / ``block_y``), ``crs``, pixel size
+            (``res_x`` / ``res_y``) and bounds (``x_min`` / ``y_min`` / ``x_max`` / ``y_max``),
+            ordered as in ``FULL_COLUMNS``.
 
         Returns
         -------
-        Raster
-            New Raster with data only at stream pixels.
+        pandas.DataFrame
+
+        Examples
+        --------
+        >>> RasterAnalyzer.describe(PATH.accum_rasters / 'merit_elv', stats=False)
+        >>> RasterAnalyzer.describe('/data/dem.tif', full=True)
+
         """
-        streams = stream_raster.data
-        stream_mask = (streams.values != 0) & ~np.isnan(streams.values.astype(float))
-        masked_data = self.data.where(stream_mask)
-        return Raster(data=masked_data)
+        rows = []
+        for path in cls._paths(rasters):
+            with rasterio.open(path) as ds:
+                row = {'name': path.name,
+                       'dir': path.parent.name,
+                       'dtype': ds.dtypes[0],
+                       'nodata': ds.nodata,
+                       'width': ds.width,
+                       'height': ds.height,
+                       'size_gb': round(path.stat().st_size / 1e9, 4)}
+                if stats:
+                    try:
+                        with warnings.catch_warnings():
+                            warnings.simplefilter('ignore')          # rasterio statistics() deprecation
+                            st = ds.statistics(1, approx=approx)
+                        row['val_min'], row['val_max'], row['val_mean'] = st.min, st.max, round(st.mean, 4)
+                    except Exception as exc:                       # unreadable / all-nodata band
+                        row['val_min'] = row['val_max'] = row['val_mean'] = float('nan')
+                        _log.warning('stats failed for %s: %s', path.name, exc)
+                if full:
+                    block_y, block_x = ds.block_shapes[0]          # (rows, cols) per gdalinfo Block=WxH
+                    res_x, res_y = ds.res
+                    b = ds.bounds
+                    row.update(driver=ds.driver, n_bands=ds.count,
+                               compression=(ds.compression.name if ds.compression else None),
+                               block_x=block_x, block_y=block_y,
+                               crs=(ds.crs.to_string() if ds.crs else None),
+                               res_x=res_x, res_y=res_y,
+                               x_min=b.left, y_min=b.bottom, x_max=b.right, y_max=b.top)
+            rows.append(row)
+        _log.info('described %d rasters', len(rows))
+        df = pd.DataFrame(rows)
+        if full:
+            df = df[[c for c in cls.FULL_COLUMNS if c in df.columns]]
+        return df
+
+    @classmethod
+    def summary(cls, rasters, group_by=REGUNIT_SUFFIX, stats: bool = True, approx: bool = True) -> pd.DataFrame:
+        """
+        Group the rasters and aggregate: file count, dtype, nodata, value range, total size.
+
+        Parameters
+        ----------
+        rasters : str or Path or sequence
+            As for ``describe``.
+        group_by : str or callable
+            How to form each row's group key from its filename: a regex *stripped* from
+            the name (default ``_regunit_N...`` -> group tiles by base name); the literal
+            ``'dir'`` to group by parent-directory name; or a callable ``name -> key``.
+        stats, approx : bool
+            As for ``describe``.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Indexed by the group key, with ``n_files``, ``dtype``, ``nodata``,
+            ``size_gb_total`` (+ ``val_min`` / ``val_max`` when ``stats``).
+
+        Examples
+        --------
+        >>> RasterAnalyzer.summary(PATH.accum_rasters, group_by='dir')
+        >>> RasterAnalyzer.summary(tiles, group_by=lambda n: n.split('_')[0])
+
+        """
+        df = cls.describe(rasters, stats=stats, approx=approx)
+        df['group'] = cls._group_key(df, group_by)
+        agg = {'n_files': ('name', 'count'), 'dtype': ('dtype', 'first'),
+               'nodata': ('nodata', 'first'), 'size_gb_total': ('size_gb', 'sum')}
+        if stats:
+            agg.update(val_min=('val_min', 'min'), val_max=('val_max', 'max'))
+        return df.groupby('group').agg(**agg).round(4)
+
+    @staticmethod
+    def _group_key(df, group_by) -> pd.Series:
+        """
+        Derive a group key per row: a callable on the name, ``'dir'``, or a regex to strip.
+
+        Examples
+        --------
+        >>> RasterAnalyzer._group_key(df, 'dir')
+
+        """
+        if callable(group_by):
+            return df['name'].map(group_by)
+        if group_by == 'dir':
+            return df['dir']
+        return df['name'].str.replace(group_by, '', regex=True)
+
+    @staticmethod
+    def _paths(rasters) -> list:
+        """
+        Normalise a directory, a single path, or a list into a sorted list of raster paths.
+
+        Examples
+        --------
+        >>> RasterAnalyzer._paths(PATH.accum_rasters)
+
+        """
+        if isinstance(rasters, (str, Path)):
+            p = Path(rasters).expanduser()
+            return sorted(p.rglob('*.tif')) if p.is_dir() else [p]
+        return [Path(r).expanduser() for r in rasters]
 
 class RasterClipper:
     """
@@ -779,161 +834,97 @@ class RasterClipper:
 
     # Various utility functions ──────────────────────────────────────────────────
 
-
-
-
-class RasterAnalyzer:
+class RasterPlotter:
     """
-    Report structure and value ranges of rasters as a pandas DataFrame.
+    Draw raster arrays on a map: the array itself, or shaded relief made from it.
 
-    ``describe`` returns one row per raster (generic, no assumptions about naming);
-    ``summary`` groups those rows via ``group_by`` and aggregates per group.
+    Neither method does any IO -- you pass a 2D array plus its lon/lat ``extent``, so the
+    same pair works for a file read through ``Raster``, a DEM window, or anything else
+    already in memory. Drawn on a ``LonLatAxes``, which assumes lon/lat, so ``imshow``
+    needs no ``transform``; on a stock projected ``GeoAxes`` pass
+    ``transform=ccrs.PlateCarree()``.
 
     Examples
     --------
-    >>> RasterAnalyzer.describe(['a_regunit_43.tif', 'a_regunit_44.tif'])
-    >>> RasterAnalyzer.summary(PATH.accum_rasters, group_by='dir')
+    >>> RasterPlotter.imshow(dem, extent=(-10, 35, 35, 72), ax=ax, cmap='terrain')
+    >>> shade = RasterPlotter.hillshaded(dem, vert_exag=2.5, dx=dx, dy=dy)
 
     """
 
-    REGUNIT_SUFFIX = r'_regunit_\d+.*'   # strip this from a tile filename to get its base name
-
-    # gdalinfo-style column order for ``full`` (name/dir prepended, val_mean kept if present)
-    FULL_COLUMNS = ['name', 'dir', 'size_gb', 'driver', 'width', 'height', 'n_bands', 'dtype',
-                    'nodata', 'val_min', 'val_max', 'val_mean', 'compression', 'block_x', 'block_y',
-                    'crs', 'res_x', 'res_y', 'x_min', 'y_min', 'x_max', 'y_max']
-
-    @classmethod
-    def describe(cls, rasters, stats: bool = True, approx: bool = True, full: bool = False) -> pd.DataFrame:
+    @staticmethod
+    def imshow(data, extent, ax=None, origin: str = 'upper', **kwargs):
         """
-        Return a DataFrame with one row per raster: name, dir, dtype, nodata, dims, size (+ value range).
+        Draw a 2D array over its lon/lat ``extent`` on a map axes.
 
         Parameters
         ----------
-        rasters : str or Path or sequence
-            A directory (searched recursively for ``*.tif``), a single raster, or a
-            list of paths.
-        stats : bool
-            Also compute the value range (``val_min`` / ``val_max`` / ``val_mean``).
-            Skip it (``False``) for a fast structure-only check of huge rasters.
-        approx : bool
-            When ``stats``, use approximate statistics (overviews / subsampling) --
-            much faster on large rasters.
-        full : bool
-            Also report the full gdalinfo-style set of columns: ``driver``, ``n_bands``,
-            ``compression``, block size (``block_x`` / ``block_y``), ``crs``, pixel size
-            (``res_x`` / ``res_y``) and bounds (``x_min`` / ``y_min`` / ``x_max`` / ``y_max``),
-            ordered as in ``FULL_COLUMNS``.
+        data : array-like
+            The 2D array (or RGBA) to display; a masked array shows nodata as transparent.
+        extent : sequence of float
+            ``(lon_min, lon_max, lat_min, lat_max)`` in degrees -- the array's bounds.
+        ax : LonLatAxes, optional
+            Map axes to draw on; the current axes if None.
+        origin : str
+            'upper' (row 0 at the top, the usual raster convention) or 'lower'.
+        **kwargs
+            Passed to ``imshow`` (e.g. ``cmap``, ``alpha``, ``zorder``, ``vmin``).
 
         Returns
         -------
-        pandas.DataFrame
+        matplotlib.image.AxesImage
+
+        Notes
+        -----
+        On a ``LonLatAxes`` the lon/lat ``extent`` needs no ``transform``; on a stock
+        projected ``GeoAxes`` pass ``transform=ccrs.PlateCarree()``.
 
         Examples
         --------
-        >>> RasterAnalyzer.describe(PATH.accum_rasters / 'merit_elv', stats=False)
-        >>> RasterAnalyzer.describe('/data/dem.tif', full=True)
+        >>> RasterPlotter.imshow(dem, extent=(-10, 35, 35, 72), ax=ax, cmap='gray')
 
         """
-        rows = []
-        for path in cls._paths(rasters):
-            with rasterio.open(path) as ds:
-                row = {'name': path.name,
-                       'dir': path.parent.name,
-                       'dtype': ds.dtypes[0],
-                       'nodata': ds.nodata,
-                       'width': ds.width,
-                       'height': ds.height,
-                       'size_gb': round(path.stat().st_size / 1e9, 4)}
-                if stats:
-                    try:
-                        with warnings.catch_warnings():
-                            warnings.simplefilter('ignore')          # rasterio statistics() deprecation
-                            st = ds.statistics(1, approx=approx)
-                        row['val_min'], row['val_max'], row['val_mean'] = st.min, st.max, round(st.mean, 4)
-                    except Exception as exc:                       # unreadable / all-nodata band
-                        row['val_min'] = row['val_max'] = row['val_mean'] = float('nan')
-                        _log.warning('stats failed for %s: %s', path.name, exc)
-                if full:
-                    block_y, block_x = ds.block_shapes[0]          # (rows, cols) per gdalinfo Block=WxH
-                    res_x, res_y = ds.res
-                    b = ds.bounds
-                    row.update(driver=ds.driver, n_bands=ds.count,
-                               compression=(ds.compression.name if ds.compression else None),
-                               block_x=block_x, block_y=block_y,
-                               crs=(ds.crs.to_string() if ds.crs else None),
-                               res_x=res_x, res_y=res_y,
-                               x_min=b.left, y_min=b.bottom, x_max=b.right, y_max=b.top)
-            rows.append(row)
-        _log.info('described %d rasters', len(rows))
-        df = pd.DataFrame(rows)
-        if full:
-            df = df[[c for c in cls.FULL_COLUMNS if c in df.columns]]
-        return df
+        if ax is None:
+            ax = plt.gca()
+        return ax.imshow(data, extent=extent, origin=origin, **kwargs)
 
-    @classmethod
-    def summary(cls, rasters, group_by=REGUNIT_SUFFIX, stats: bool = True, approx: bool = True) -> pd.DataFrame:
+
+    @staticmethod
+    def hillshaded(dem, azdeg: float = 315.0, altdeg: float = 45.0, vert_exag: float = 1.0, dx: float = 1.0, dy: float = 1.0):
         """
-        Group the rasters and aggregate: file count, dtype, nodata, value range, total size.
+        Return shaded-relief intensity in ``[0, 1]`` from an elevation array.
 
         Parameters
         ----------
-        rasters : str or Path or sequence
-            As for ``describe``.
-        group_by : str or callable
-            How to form each row's group key from its filename: a regex *stripped* from
-            the name (default ``_regunit_N...`` -> group tiles by base name); the literal
-            ``'dir'`` to group by parent-directory name; or a callable ``name -> key``.
-        stats, approx : bool
-            As for ``describe``.
+        dem : array-like
+            Elevation grid. A masked array keeps its mask (nodata -> transparent when
+            drawn), and its masked cells are filled flat before shading so the coastline
+            gets no false cliff.
+        azdeg : float
+            Illumination azimuth in degrees (315 = light from the north-west).
+        altdeg : float
+            Illumination altitude above the horizon, in degrees.
+        vert_exag : float
+            Vertical exaggeration; raise it to bring out relief in flat terrain.
+        dx, dy : float
+            Pixel spacing in the elevation's own units (e.g. metres). Passing the true
+            spacing keeps the shading physically sensible across resolutions -- with the
+            default ``1`` a coarse grid over-saturates, since a cell's rise is compared
+            to a one-unit run.
 
         Returns
         -------
-        pandas.DataFrame
-            Indexed by the group key, with ``n_files``, ``dtype``, ``nodata``,
-            ``size_gb_total`` (+ ``val_min`` / ``val_max`` when ``stats``).
+        numpy.ndarray or numpy.ma.MaskedArray
+            Intensity in ``[0, 1]``; draw it with ``imshow(..., cmap='gray')``.
 
         Examples
         --------
-        >>> RasterAnalyzer.summary(PATH.accum_rasters, group_by='dir')
-        >>> RasterAnalyzer.summary(tiles, group_by=lambda n: n.split('_')[0])
+        >>> shade = RasterPlotter.hillshaded(dem, vert_exag=1.5, dx=2000, dy=2000)   # ~2 km pixels
+        >>> RasterPlotter.imshow(shade, extent=ext, ax=ax, cmap='gray', vmin=0, vmax=1, zorder=0.5)
 
         """
-        df = cls.describe(rasters, stats=stats, approx=approx)
-        df['group'] = cls._group_key(df, group_by)
-        agg = {'n_files': ('name', 'count'), 'dtype': ('dtype', 'first'),
-               'nodata': ('nodata', 'first'), 'size_gb_total': ('size_gb', 'sum')}
-        if stats:
-            agg.update(val_min=('val_min', 'min'), val_max=('val_max', 'max'))
-        return df.groupby('group').agg(**agg).round(4)
+        arr = np.ma.asarray(dem).astype(float)
+        mask = np.ma.getmaskarray(arr)
+        filled = arr.filled(np.ma.median(arr)) if mask.any() else np.asarray(arr)
+        intensity = LightSource(azdeg=azdeg, altdeg=altdeg).hillshade(filled, vert_exag=vert_exag, dx=dx, dy=dy)
+        return np.ma.array(intensity, mask=mask)
 
-    @staticmethod
-    def _group_key(df, group_by) -> pd.Series:
-        """
-        Derive a group key per row: a callable on the name, ``'dir'``, or a regex to strip.
-
-        Examples
-        --------
-        >>> RasterAnalyzer._group_key(df, 'dir')
-
-        """
-        if callable(group_by):
-            return df['name'].map(group_by)
-        if group_by == 'dir':
-            return df['dir']
-        return df['name'].str.replace(group_by, '', regex=True)
-
-    @staticmethod
-    def _paths(rasters) -> list:
-        """
-        Normalise a directory, a single path, or a list into a sorted list of raster paths.
-
-        Examples
-        --------
-        >>> RasterAnalyzer._paths(PATH.accum_rasters)
-
-        """
-        if isinstance(rasters, (str, Path)):
-            p = Path(rasters).expanduser()
-            return sorted(p.rglob('*.tif')) if p.is_dir() else [p]
-        return [Path(r).expanduser() for r in rasters]
