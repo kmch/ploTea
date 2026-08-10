@@ -4,7 +4,7 @@ Ready-made colormaps for rasters: discrete class schemes and a land-terrain ramp
 The discrete builders return a ``DiscreteCmap`` bundling the matplotlib ``cmap`` + ``norm``
 (so a class raster draws with the official colours) together with the class ``values`` and
 ``labels`` (so a colorbar can be ticked and labelled). ``land_terrain`` returns a continuous
-colormap for elevation. plotea does no raster IO -- pass the raster to ``plot_raster`` and
+colormap for elevation. plotea does no raster IO -- pass the raster to ``RasterPlotter.imshow`` and
 the ``cmap`` / ``norm`` alongside it.
 
 Notes
@@ -39,7 +39,7 @@ class DiscreteCmap:
     Examples
     --------
     >>> scheme = esa_worldcover()
-    >>> im = plot_raster(lulc, extent=ext, ax=ax, cmap=scheme.cmap, norm=scheme.norm)
+    >>> im = RasterPlotter.imshow(lulc, extent=ext, ax=ax, cmap=scheme.cmap, norm=scheme.norm)
     >>> cb = fig.colorbar(im); cb.set_ticks(scheme.values); cb.set_ticklabels(scheme.labels)
 
     """
@@ -118,7 +118,7 @@ def land_terrain():
 
     Examples
     --------
-    >>> plot_raster(dem, extent=ext, ax=ax, cmap=land_terrain())
+    >>> RasterPlotter.imshow(dem, extent=ext, ax=ax, cmap=land_terrain())
 
     """
     import numpy as np

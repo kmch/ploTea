@@ -1,10 +1,10 @@
 """
 Raster on a map: an array display, a shaded-relief background, and a ``Raster`` class.
 
-The array helpers (``plot_raster``, ``hillshade``) do no IO -- you pass a 2D array plus its
-lon/lat ``extent``, drawn on a ``LonLatAxes`` (which assumes lon/lat, so ``imshow`` needs no
-``transform``). The ``Raster`` class *does* read files, lazily importing ``rasterio`` (an
-*optional* plotea dependency): ``import plotea`` works without it; only ``Raster.read`` needs it.
+``RasterPlotter`` does no IO -- you pass a 2D array plus its lon/lat ``extent``. ``Raster``
+*does* read files, lazily importing ``rasterio`` and ``rioxarray`` (optional plotea
+dependencies), so ``import plotea`` works without them. ``RasterClipper`` cuts a raster to a
+region; ``RasterAnalyzer`` tabulates several.
 
 """
 import math
@@ -17,85 +17,104 @@ from matplotlib.colors import LightSource
 
 from plotea.log import get_logger
 
-__all__ = ['plot_raster', 'hillshade', 'Raster', 'RasterClipper', 'RasterAnalyzer']
+__all__ = ['RasterPlotter', 'Raster', 'RasterClipper', 'RasterAnalyzer']
 
 _log = get_logger(__name__)
 
 
-def plot_raster(data, extent, ax=None, origin: str = 'upper', **kwargs):
+class RasterPlotter:
     """
-    Draw a 2D array over its lon/lat ``extent`` on a map axes.
+    Draw raster arrays on a map: the array itself, or shaded relief made from it.
 
-    Parameters
-    ----------
-    data : array-like
-        The 2D array (or RGBA) to display; a masked array shows nodata as transparent.
-    extent : sequence of float
-        ``(lon_min, lon_max, lat_min, lat_max)`` in degrees -- the array's bounds.
-    ax : LonLatAxes, optional
-        Map axes to draw on; the current axes if None.
-    origin : str
-        'upper' (row 0 at the top, the usual raster convention) or 'lower'.
-    **kwargs
-        Passed to ``imshow`` (e.g. ``cmap``, ``alpha``, ``zorder``, ``vmin``).
-
-    Returns
-    -------
-    matplotlib.image.AxesImage
-
-    Notes
-    -----
-    On a ``LonLatAxes`` the lon/lat ``extent`` needs no ``transform``; on a stock
-    projected ``GeoAxes`` pass ``transform=ccrs.PlateCarree()``.
+    Neither method does any IO -- you pass a 2D array plus its lon/lat ``extent``, so the
+    same pair works for a file read through ``Raster``, a DEM window, or anything else
+    already in memory. Drawn on a ``LonLatAxes``, which assumes lon/lat, so ``imshow``
+    needs no ``transform``; on a stock projected ``GeoAxes`` pass
+    ``transform=ccrs.PlateCarree()``.
 
     Examples
     --------
-    >>> plot_raster(dem, extent=(-10, 35, 35, 72), ax=ax, cmap='gray')
+    >>> RasterPlotter.imshow(dem, extent=(-10, 35, 35, 72), ax=ax, cmap='terrain')
+    >>> shade = RasterPlotter.hillshaded(dem, vert_exag=2.5, dx=dx, dy=dy)
 
     """
-    if ax is None:
-        ax = plt.gca()
-    return ax.imshow(data, extent=extent, origin=origin, **kwargs)
+
+    @staticmethod
+    def imshow(data, extent, ax=None, origin: str = 'upper', **kwargs):
+        """
+        Draw a 2D array over its lon/lat ``extent`` on a map axes.
+
+        Parameters
+        ----------
+        data : array-like
+            The 2D array (or RGBA) to display; a masked array shows nodata as transparent.
+        extent : sequence of float
+            ``(lon_min, lon_max, lat_min, lat_max)`` in degrees -- the array's bounds.
+        ax : LonLatAxes, optional
+            Map axes to draw on; the current axes if None.
+        origin : str
+            'upper' (row 0 at the top, the usual raster convention) or 'lower'.
+        **kwargs
+            Passed to ``imshow`` (e.g. ``cmap``, ``alpha``, ``zorder``, ``vmin``).
+
+        Returns
+        -------
+        matplotlib.image.AxesImage
+
+        Notes
+        -----
+        On a ``LonLatAxes`` the lon/lat ``extent`` needs no ``transform``; on a stock
+        projected ``GeoAxes`` pass ``transform=ccrs.PlateCarree()``.
+
+        Examples
+        --------
+        >>> RasterPlotter.imshow(dem, extent=(-10, 35, 35, 72), ax=ax, cmap='gray')
+
+        """
+        if ax is None:
+            ax = plt.gca()
+        return ax.imshow(data, extent=extent, origin=origin, **kwargs)
 
 
-def hillshade(dem, azdeg: float = 315.0, altdeg: float = 45.0, vert_exag: float = 1.0, dx: float = 1.0, dy: float = 1.0):
-    """
-    Return shaded-relief intensity in ``[0, 1]`` from an elevation array.
+    @staticmethod
+    def hillshaded(dem, azdeg: float = 315.0, altdeg: float = 45.0, vert_exag: float = 1.0, dx: float = 1.0, dy: float = 1.0):
+        """
+        Return shaded-relief intensity in ``[0, 1]`` from an elevation array.
 
-    Parameters
-    ----------
-    dem : array-like
-        Elevation grid. A masked array keeps its mask (nodata -> transparent when
-        drawn), and its masked cells are filled flat before shading so the coastline
-        gets no false cliff.
-    azdeg : float
-        Illumination azimuth in degrees (315 = light from the north-west).
-    altdeg : float
-        Illumination altitude above the horizon, in degrees.
-    vert_exag : float
-        Vertical exaggeration; raise it to bring out relief in flat terrain.
-    dx, dy : float
-        Pixel spacing in the elevation's own units (e.g. metres). Passing the true
-        spacing keeps the shading physically sensible across resolutions -- with the
-        default ``1`` a coarse grid over-saturates, since a cell's rise is compared
-        to a one-unit run.
+        Parameters
+        ----------
+        dem : array-like
+            Elevation grid. A masked array keeps its mask (nodata -> transparent when
+            drawn), and its masked cells are filled flat before shading so the coastline
+            gets no false cliff.
+        azdeg : float
+            Illumination azimuth in degrees (315 = light from the north-west).
+        altdeg : float
+            Illumination altitude above the horizon, in degrees.
+        vert_exag : float
+            Vertical exaggeration; raise it to bring out relief in flat terrain.
+        dx, dy : float
+            Pixel spacing in the elevation's own units (e.g. metres). Passing the true
+            spacing keeps the shading physically sensible across resolutions -- with the
+            default ``1`` a coarse grid over-saturates, since a cell's rise is compared
+            to a one-unit run.
 
-    Returns
-    -------
-    numpy.ndarray or numpy.ma.MaskedArray
-        Intensity in ``[0, 1]``; draw it with ``plot_raster(..., cmap='gray')``.
+        Returns
+        -------
+        numpy.ndarray or numpy.ma.MaskedArray
+            Intensity in ``[0, 1]``; draw it with ``imshow(..., cmap='gray')``.
 
-    Examples
-    --------
-    >>> shade = hillshade(dem, vert_exag=1.5, dx=2000, dy=2000)   # ~2 km pixels
-    >>> plot_raster(shade, extent=ext, ax=ax, cmap='gray', vmin=0, vmax=1, zorder=0.5)
+        Examples
+        --------
+        >>> shade = RasterPlotter.hillshaded(dem, vert_exag=1.5, dx=2000, dy=2000)   # ~2 km pixels
+        >>> RasterPlotter.imshow(shade, extent=ext, ax=ax, cmap='gray', vmin=0, vmax=1, zorder=0.5)
 
-    """
-    arr = np.ma.asarray(dem).astype(float)
-    mask = np.ma.getmaskarray(arr)
-    filled = arr.filled(np.ma.median(arr)) if mask.any() else np.asarray(arr)
-    intensity = LightSource(azdeg=azdeg, altdeg=altdeg).hillshade(filled, vert_exag=vert_exag, dx=dx, dy=dy)
-    return np.ma.array(intensity, mask=mask)
+        """
+        arr = np.ma.asarray(dem).astype(float)
+        mask = np.ma.getmaskarray(arr)
+        filled = arr.filled(np.ma.median(arr)) if mask.any() else np.asarray(arr)
+        intensity = LightSource(azdeg=azdeg, altdeg=altdeg).hillshade(filled, vert_exag=vert_exag, dx=dx, dy=dy)
+        return np.ma.array(intensity, mask=mask)
 
 
 class Raster:
@@ -392,7 +411,7 @@ class Raster:
         # Grey land + blue ocean under the raster (so land outside it still shows), coastline
         # off -- the raster's own nodata edge is the coast, no coarse line over the data.
         fig, ax = BaseMap(bbox=bbox, crs=laea_eu(), style=style, coastline=False, graticule_step=10).plot(figsize=figsize)
-        im = plot_raster(data, extent=extent, ax=ax, **kwargs)
+        im = RasterPlotter.imshow(data, extent=extent, ax=ax, **kwargs)
         # Horizontal colorbar in the top-left corner -- over the NW-Atlantic / Iceland, off the data.
         wide = 0.46 if scheme is not None else 0.30            # class rasters get a wider bar for their labels
         cax = ax.inset_axes([0.04, 0.90, wide, 0.02])

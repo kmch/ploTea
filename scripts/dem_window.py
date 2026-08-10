@@ -4,7 +4,7 @@ Read a decimated window of a (possibly huge) DEM for a single map panel.
 rasterio-based, and deliberately *not* part of the installed ``plotea`` package --
 plotea itself takes no raster-IO dependency. Keep it as a standalone helper: the
 caller passes any DEM path and a lon/lat extent, and gets back a small,
-resolution-appropriate array ready for ``plotea.hillshade`` / ``plotea.plot_raster``.
+resolution-appropriate array ready for ``RasterPlotter.hillshaded`` / ``RasterPlotter.imshow``.
 
 The point is per-panel resampling: read a wide view from a coarse copy and a zoom
 from native tiles, both decimated to the same on-screen pixel budget, so no
@@ -14,8 +14,8 @@ Example
 -------
     from dem_window import read_dem
     dem, dx, dy = read_dem('/data/merit_europe_coarse.tif', (-10, 35, 35, 72), max_px=1600)
-    shade = plotea.hillshade(dem, dx=dx, dy=dy)
-    plotea.plot_raster(shade, extent=(-10, 35, 35, 72), ax=ax, cmap='gray')
+    shade = RasterPlotter.hillshaded(dem, dx=dx, dy=dy)
+    RasterPlotter.imshow(shade, extent=(-10, 35, 35, 72), ax=ax, cmap='gray')
 
 """
 import numpy as np
@@ -42,7 +42,7 @@ def read_dem(path, extent, max_px: int = 1600):
     dem : numpy.ma.MaskedArray
         Elevation over the window, nodata masked.
     dx, dy : float
-        Pixel spacing in metres (dx uses the mid-latitude cosine), for ``hillshade``.
+        Pixel spacing in metres (dx uses the mid-latitude cosine), for ``hillshaded``.
 
     """
     lon0, lon1, lat0, lat1 = extent
