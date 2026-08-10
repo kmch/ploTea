@@ -7,6 +7,7 @@ lon/lat ``extent``, drawn on a ``LonLatAxes`` (which assumes lon/lat, so ``imsho
 *optional* plotea dependency): ``import plotea`` works without it; only ``Raster.read`` needs it.
 
 """
+import math
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -16,7 +17,7 @@ from matplotlib.colors import LightSource
 
 from plotea.log import get_logger
 
-__all__ = ['plot_raster', 'hillshade', 'Raster', 'RasterAnalyzer']
+__all__ = ['plot_raster', 'hillshade', 'Raster', 'RasterClipper', 'RasterAnalyzer']
 
 _log = get_logger(__name__)
 
@@ -99,90 +100,24 @@ def hillshade(dem, azdeg: float = 315.0, altdeg: float = 45.0, vert_exag: float 
 
 class Raster:
     """
-    An abstract raster class.
+    A raster: a file, an in-memory array, or neither yet -- plus how to read and draw it.
 
-    Can be initialised with a file path, an xarray DataArray, both, or neither.
-    Data is loaded from disk lazily — only when first accessed via `.data`.
-
-    TODO: vrt from h2smart.
+    ``Raster()`` takes no arguments, so an empty one can be filled in later; with a ``path``
+    the data is read lazily, on first access, and never on construction. Two ways in:
+    ``data`` gives the whole thing as an xarray DataArray (for analysis), ``read`` a
+    decimated window (for plotting a continent without loading a continent).
 
     Parameters
     ----------
     path : str or Path, optional
-    data : xarray.DataArray, optional
-    """
-    def __init__(self, path=None, data=None):
-        self.path = Path(path) if path is not None else None
-        self._data = data
-    def __repr__(self):
-        """
-        Return a string representation of the Raster object, showing the path and
-        whether the associated data has been loaded into memory.
-
-        Returns
-        -------
-        str
-            String of the form "Raster(path=..., data=loaded)" if data is loaded,
-            or "Raster(path=..., data=not loaded)" if not.
-        """
-        data_status = 'loaded' if self._data is not None else 'not loaded'
-        return f"Raster(path={self.path}, data={data_status})"
-    def info(self):
-        print(f"path      : {self.path}")
-        print(f"has data  : {self._data is not None}")
-        if self.data is not None:
-            print(f"shape     : {self.data.shape}")
-            print(f"dtype     : {self.data.dtype}")
-            print(f"crs       : {self.crs}")
-            print(f"bounds    : {self.bounds}")
-            print(f"resolution: {self.resolution}")
-
-    # Data access (lazy) ------------------------------------------------------------------
-    @property
-    def data(self) -> xr.DataArray | None:
-        if self._data is None and self.path is not None:
-            self._data = rioxarray.open_rasterio(self.path, masked=True)
-        return self._data
-    # This is the setter for the 'data' property of the Raster class.
-    # It allows assignment like `raster.data = new_data`, which updates the internal
-    # _data attribute. This is useful for replacing or injecting new xarray.DataArray
-    # content without changing the file path.
-    @data.setter
-    def data(self, value):
-        self._data = value
-
-    # Spatial metadata — derived from data on demand ---------------------------- 
-    @property
-    def crs(self):
-        return self.data.rio.crs if self.data is not None else None
-    @property
-    def transform(self):
-        return self.data.rio.transform() if self.data is not None else None
-    @property
-    def bounds(self):
-        return self.data.rio.bounds() if self.data is not None else None
-    @property
-    def resolution(self):
-        return self.data.rio.resolution() if self.data is not None else None
- 
-
-class Raster:
-    """
-    A raster file that reads a decimated window and plots itself on a Europe basemap.
-
-    Bundles a file ``path`` with its plotting config -- ``cmap`` and the decimation
-    ``resampling`` (use ``'nearest'`` for a class raster, so codes are not averaged into
-    nonsense; ``'average'`` for a continuous one). ``read`` lazily imports ``rasterio``, an
-    *optional* plotea dependency: ``import plotea`` works without it; only reading needs it.
-
-    Parameters
-    ----------
-    path : str or Path
         The raster file (GeoTIFF, VRT, ...) in lon/lat (EPSG:4326).
+    data : xarray.DataArray, optional
+        In-memory data, e.g. the result of an operation on another raster.
     cmap : str or Colormap or DiscreteCmap
         Colormap; a ``DiscreteCmap`` (class raster) draws with its norm + colorbar labels.
     resampling : str
-        rasterio resampling name for the decimated read ('average', 'nearest', ...).
+        rasterio resampling name for the decimated read ('average', 'nearest', ...). Use
+        'nearest' for a class raster, so codes are not averaged into nonsense.
     label : str
         Colorbar label (defaults to the file stem); ``unit`` is appended as ``(unit)``.
     unit : str
@@ -195,35 +130,38 @@ class Raster:
     cbar_rect : tuple
         Inset colorbar position ``(x, y, w, h)`` in axes fraction.
 
+    Notes
+    -----
+    ``rasterio``, ``rioxarray`` and ``xarray`` are imported inside the methods that need
+    them: they are optional dependencies, so ``import plotea`` works without them and only
+    reading a file pays for them.
+
     Examples
     --------
+    >>> Raster()                                                   # fill in later
     >>> Raster('/data/merit_elv.vrt', cmap='terrain', scale=0.01, unit='m').plot_map()
-    >>> Raster('/data/lulc.vrt', cmap=esa_worldcover(), resampling='nearest').plot_map()
+    >>> data, extent = Raster('/data/merit_twi.vrt').read((-10, 30, 35, 72), max_px=1000)
 
     """
 
-    def __init__(self, path, cmap='viridis', resampling='average', label='', unit='', scale=1.0, robust=True, cbar_rect=(0.84, 0.52, 0.03, 0.4)):
-        """
-        Store the path and plotting/reading config.
-
-        Examples
-        --------
-        >>> Raster('/data/merit_elv.vrt', cmap='terrain', scale=0.01, unit='m')
-
-        """
-        self.path = Path(path).expanduser()
-        self.cmap = cmap
+    def __init__(self, path=None, data=None, cmap='viridis', resampling='average', label='', unit='', scale=1.0, robust=True, cbar_rect=(0.84, 0.52, 0.03, 0.4)):
+        self.path       = Path(path).expanduser() if path is not None else None
+        self._data      = data
+        self.cmap       = cmap
         self.resampling = resampling
-        self.label = label
-        self.unit = unit
-        self.scale = scale
-        self.robust = robust
-        self.cbar_rect = cbar_rect
+        self.label      = label
+        self.unit       = unit
+        self.scale      = scale
+        self.robust     = robust
+        self.cbar_rect  = cbar_rect
+
+    def __repr__(self):
+        return f'Raster(path={self.path}, data={"loaded" if self._data is not None else "not loaded"})'
 
     @property
     def name(self) -> str:
         """
-        The file stem (default colorbar label / plot title).
+        The file stem -- the default colorbar label and plot title.
 
         Examples
         --------
@@ -231,14 +169,96 @@ class Raster:
         'merit_twi'
 
         """
-        return self.path.stem
+        return self.path.stem if self.path is not None else ''
+
+    @property
+    def data(self):
+        """
+        The whole raster as an xarray DataArray, read from ``path`` on first access.
+
+        Examples
+        --------
+        >>> Raster('/data/merit_twi.vrt').data
+
+        """
+        if self._data is None and self.path is not None:
+            import rioxarray
+            self._data = rioxarray.open_rasterio(self.path, masked=True)
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = value
+
+    @property
+    def crs(self):
+        """
+        The raster's CRS, or None when there is no data yet.
+
+        Examples
+        --------
+        >>> Raster('/data/merit_twi.vrt').crs
+
+        """
+        return self.data.rio.crs if self.data is not None else None
+
+    @property
+    def transform(self):
+        """
+        The affine transform, or None when there is no data yet.
+
+        Examples
+        --------
+        >>> Raster('/data/merit_twi.vrt').transform
+
+        """
+        return self.data.rio.transform() if self.data is not None else None
+
+    @property
+    def bounds(self):
+        """
+        ``(minx, miny, maxx, maxy)``, or None when there is no data yet.
+
+        Examples
+        --------
+        >>> Raster('/data/merit_twi.vrt').bounds
+
+        """
+        return self.data.rio.bounds() if self.data is not None else None
+
+    @property
+    def resolution(self):
+        """
+        Pixel size ``(x, y)``, or None when there is no data yet.
+
+        Examples
+        --------
+        >>> Raster('/data/merit_twi.vrt').resolution
+
+        """
+        return self.data.rio.resolution() if self.data is not None else None
+
+    def info(self):
+        """
+        Log the path, shape, dtype, CRS, bounds and resolution. Reads the data if needed.
+
+        Examples
+        --------
+        >>> Raster('/data/merit_twi.vrt').info()
+
+        """
+        _log.info('%s: has data=%s', self.path, self._data is not None)
+        if self.data is not None:
+            _log.info('shape=%s dtype=%s crs=%s bounds=%s resolution=%s',
+                      self.data.shape, self.data.dtype, self.crs, self.bounds, self.resolution)
+        return self
 
     def read(self, extent=None, max_px: int = 2000):
         """
         Read a decimated window over ``extent`` (lon0, lon1, lat0, lat1); whole raster if None.
 
-        Lazily imports ``rasterio``; decimates to ~``max_px`` on the longer side using
-        ``self.resampling``.
+        Decimates to about ``max_px`` on the longer side using ``self.resampling``, so a
+        continent-sized raster can be plotted without reading it at full resolution.
 
         Parameters
         ----------
@@ -262,6 +282,8 @@ class Raster:
         from rasterio.enums import Resampling
         from rasterio.windows import from_bounds
 
+        if self.path is None:
+            raise ValueError('read needs a file: build the Raster with a path.')
         with rasterio.open(self.path) as ds:
             if extent is None:
                 b = ds.bounds
@@ -276,6 +298,48 @@ class Raster:
         if self.scale != 1.0:                                       # -> physical units for the colour scale
             data = data * self.scale
         return data, extent
+
+    def clip(self, mode, out_file, **kwargs) -> 'Raster':
+        """
+        Clip to a region and write it, returning the new Raster. See ``RasterClipper``.
+
+        Examples
+        --------
+        >>> Raster('/data/merit_elv.vrt').clip('roi', out, roi='parnu')
+
+        """
+        if self.path is None:
+            raise ValueError('clip needs a file: build the Raster with a path.')
+        return RasterClipper.clip(self.path, mode, out_file, **kwargs)
+
+    def reproject(self, dst_crs: int, out_file=None) -> 'Raster':
+        """
+        Write a copy reprojected to ``dst_crs`` (an EPSG code) and return it.
+
+        Examples
+        --------
+        >>> Raster('/data/merit_elv.vrt').reproject(3035)
+
+        """
+        import rasterio
+        from rasterio.enums import Resampling
+        from rasterio.warp import calculate_default_transform, reproject
+
+        if self.path is None:
+            raise ValueError('reproject needs a file: build the Raster with a path.')
+        target   = f'EPSG:{dst_crs}'
+        out_file = Path(out_file) if out_file is not None else self.path.parent / f'{self.path.stem}_reproj_{dst_crs}.tif'
+        with rasterio.open(self.path) as src:
+            transform, width, height = calculate_default_transform(src.crs, target, src.width, src.height, *src.bounds)
+            meta = src.meta.copy()
+            meta.update(crs=target, transform=transform, width=width, height=height)
+            with rasterio.open(out_file, 'w', **meta) as dst:
+                for band in range(1, src.count + 1):
+                    reproject(source=rasterio.band(src, band), destination=rasterio.band(dst, band),
+                              src_transform=src.transform, src_crs=src.crs,
+                              dst_transform=transform, dst_crs=target, resampling=Resampling.nearest)
+        _log.info('Reprojected %s to %s -> %s', self.path, target, out_file)
+        return Raster(path=out_file)
 
     def plot_map(self, bbox='eu', cmap=None, max_px=2000, vmin=None, vmax=None, label=None, title=None, figsize=(8, 8)):
         """
@@ -346,6 +410,287 @@ class Raster:
         if title is not None:
             ax.set_title(title)
         return fig, ax
+
+    def align_to(self, reference, out_file, resampling=None) -> "Raster":
+        """
+        Reproject and snap *src* to exactly match *reference*'s CRS, resolution,
+        and extent, then write to *out_file*.
+
+        Uses rioxarray.reproject_match() under the hood.
+
+        Parameters
+        ----------
+        reference : Raster
+        out_file : str or Path
+        resampling : rasterio.enums.Resampling
+            Default bilinear (suitable for continuous data like bdod).
+            Use Resampling.nearest for categorical data.
+
+        Returns
+        -------
+        Raster
+            New Raster aligned to *reference* and saved to *out_file*.
+        """
+        out_file = Path(out_file)
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        from rasterio.enums import Resampling
+        resampling = resampling if resampling is not None else Resampling.bilinear
+        aligned = self.data.rio.reproject_match(reference.data, resampling=resampling)
+        aligned.rio.to_raster(out_file, driver='GTiff')
+        _log.info('Aligned %s -> %s', self.path, out_file)
+        return Raster(path=out_file)
+
+    def mask_to_streams(self, stream_raster) -> "Raster":
+        """
+        Mask a raster to stream pixels only.
+
+        Stream pixels are defined as cells where the stream raster is non-zero
+        and not NaN. All other pixels are set to NaN.
+
+        Parameters
+        ----------
+        stream_raster : Raster
+            Stream network raster (e.g. from reproduce_hy90m).
+            Non-zero, non-NaN cells are treated as stream pixels.
+
+        Returns
+        -------
+        Raster
+            New Raster with data only at stream pixels.
+        """
+        streams = stream_raster.data
+        stream_mask = (streams.values != 0) & ~np.isnan(streams.values.astype(float))
+        masked_data = self.data.where(stream_mask)
+        return Raster(data=masked_data)
+
+class RasterClipper:
+    """
+    Clip a raster to a region, by any of several ways of naming that region.
+
+    ``clip`` is the entry point; the mode picks which of the ``MODES`` builds the shapes
+    to cut to. They live together because they share the snapping and writing helpers --
+    a clip that does not snap to the source grid gives rasters that no longer align.
+
+    Examples
+    --------
+    >>> RasterClipper.clip(src, 'roi', out, roi='parnu', snap=True)
+    >>> RasterClipper.clip(src, 'bbox', out, bbox=(24.5, 58.0, 26.0, 59.0))
+
+    """
+
+    @staticmethod
+    def _snap_bbox(minx, miny, maxx, maxy, transform):
+        """Expand a bbox outward to align with the raster's pixel grid.
+
+        Ensures that two rasters with the same pixel grid clipped to the same
+        nominal bbox always produce identical shapes — preventing the off-by-one
+        pixel mismatches that arise when floating-point bbox edges land mid-pixel.
+        """
+        res_x = transform.a        # pixel width  (positive)
+        res_y = abs(transform.e)   # pixel height (positive magnitude)
+        ox    = transform.c        # x of left edge of grid
+        oy    = transform.f        # y of top  edge of grid
+        minx  = ox + math.floor((minx - ox) / res_x) * res_x
+        maxx  = ox + math.ceil( (maxx - ox) / res_x) * res_x
+        maxy  = oy - math.floor((oy - maxy) / res_y) * res_y
+        miny  = oy - math.ceil( (oy - miny) / res_y) * res_y
+        return minx, miny, maxx, maxy
+    @staticmethod
+    def _pad_bbox(minx, miny, maxx, maxy, pad):
+        """Apply fractional padding to a bounding box."""
+        if pad == 0.0:
+            return minx, miny, maxx, maxy
+        w, h = maxx - minx, maxy - miny
+        return minx - w * pad, miny - h * pad, maxx + w * pad, maxy + h * pad
+    @staticmethod
+    def _bbox_to_shapes(minx, miny, maxx, maxy, crs):
+        """Convert a bbox to a GeoSeries suitable for rasterio.mask."""
+        import geopandas as gpd
+        from shapely.geometry import box as shapely_box
+        return gpd.GeoSeries([shapely_box(minx, miny, maxx, maxy)], crs=crs)
+    @staticmethod
+    def _write_clip(ds, shapes, out_file):
+        """Run rasterio.mask and write the clipped raster."""
+        import rasterio
+        from rasterio.mask import mask
+        out_image, out_transform = mask(dataset=ds, shapes=shapes, crop=True)
+        meta = ds.meta.copy()
+        meta.update(
+            driver='GTiff',
+            height=out_image.shape[1],
+            width=out_image.shape[2],
+            transform=out_transform,
+        )
+        with rasterio.open(out_file, 'w', **meta) as dst:
+            dst.write(out_image)
+    @staticmethod
+    def _clip_to_roi(ds, **kwargs):
+        """Resolve clip shapes for a named ROI.
+
+        Required kwargs: roi (str).
+        Optional kwargs: pad (float), snap (bool).
+        """
+        from plotea.maps.registry import ROIS
+        roi = kwargs['roi']
+        pad = kwargs.get('pad', 0.0)
+        snap = kwargs.get('snap', False)
+        if roi not in ROIS:
+            raise ValueError(f"Unknown ROI '{roi}'. Available: {list(ROIS.keys())}")
+        minx, miny, maxx, maxy = RasterClipper._pad_bbox(*ROIS[roi], pad)
+        if snap:
+            minx, miny, maxx, maxy = RasterClipper._snap_bbox(minx, miny, maxx, maxy, ds.transform)
+        return RasterClipper._bbox_to_shapes(minx, miny, maxx, maxy, ds.crs)
+    @staticmethod
+    def _clip_to_bbox(ds, **kwargs):
+        """Resolve clip shapes for an explicit bounding box.
+
+        Required kwargs: bbox (minx, miny, maxx, maxy).
+        Optional kwargs: pad (float), snap (bool).
+        """
+        bbox = kwargs['bbox']
+        pad = kwargs.get('pad', 0.0)
+        snap = kwargs.get('snap', False)
+        minx, miny, maxx, maxy = RasterClipper._pad_bbox(*bbox, pad)
+        if snap:
+            minx, miny, maxx, maxy = RasterClipper._snap_bbox(minx, miny, maxx, maxy, ds.transform)
+        return RasterClipper._bbox_to_shapes(minx, miny, maxx, maxy, ds.crs)
+    @staticmethod
+    def _clip_to_poi(ds, **kwargs):
+        """Resolve clip shapes for a point-of-interest square window.
+
+        Required kwargs: poi (lon, lat), half_width (float).
+        Optional kwargs: pad (float), snap (bool).
+        """
+        poi = kwargs['poi']
+        if 'half_width' not in kwargs:
+            raise ValueError("poi mode requires half_width")
+        half_width = kwargs['half_width']
+        pad = kwargs.get('pad', 0.0)
+        snap = kwargs.get('snap', False)
+        cx, cy = poi
+        minx, maxx = cx - half_width, cx + half_width
+        miny, maxy = cy - half_width, cy + half_width
+        minx, miny, maxx, maxy = RasterClipper._pad_bbox(minx, miny, maxx, maxy, pad)
+        if snap:
+            minx, miny, maxx, maxy = RasterClipper._snap_bbox(minx, miny, maxx, maxy, ds.transform)
+        return RasterClipper._bbox_to_shapes(minx, miny, maxx, maxy, ds.crs)
+    @staticmethod
+    def _clip_to_fraction(ds, **kwargs):
+        """Resolve clip shapes for a centred fraction of the raster extent.
+
+        Required kwargs: fraction (float in (0, 1]).
+        Optional kwargs: pad (float), snap (bool).
+        """
+        fraction = kwargs['fraction']
+        pad = kwargs.get('pad', 0.0)
+        snap = kwargs.get('snap', False)
+        if not 0 < fraction <= 1:
+            raise ValueError(f"fraction must be in (0, 1], got {fraction}")
+        b  = ds.bounds
+        cx = (b.left + b.right) / 2
+        cy = (b.bottom + b.top) / 2
+        hw = (b.right - b.left) * fraction / 2
+        hh = (b.top - b.bottom) * fraction / 2
+        minx, maxx = cx - hw, cx + hw
+        miny, maxy = cy - hh, cy + hh
+        minx, miny, maxx, maxy = RasterClipper._pad_bbox(minx, miny, maxx, maxy, pad)
+        if snap:
+            minx, miny, maxx, maxy = RasterClipper._snap_bbox(minx, miny, maxx, maxy, ds.transform)
+        return RasterClipper._bbox_to_shapes(minx, miny, maxx, maxy, ds.crs)
+    @staticmethod
+    def _clip_to_geometry(ds, **kwargs):
+        """Resolve clip shapes for a vector geometry (exact shape or bbox).
+
+        Required kwargs: geometry (GeoDataFrame or GeoSeries).
+        Optional kwargs: geometry_bbox (bool), pad (float), snap (bool).
+        """
+        import geopandas as gpd
+        geometry = kwargs['geometry']
+        geometry_bbox = kwargs.get('geometry_bbox', False)
+        pad = kwargs.get('pad', 0.0)
+        snap = kwargs.get('snap', False)
+        shapes = geometry.to_crs(ds.crs).geometry \
+            if isinstance(geometry, gpd.GeoDataFrame) else geometry
+        if geometry_bbox:
+            minx, miny, maxx, maxy = RasterClipper._pad_bbox(*shapes.total_bounds, pad)
+            if snap:
+                minx, miny, maxx, maxy = RasterClipper._snap_bbox(minx, miny, maxx, maxy, ds.transform)
+            shapes = RasterClipper._bbox_to_shapes(minx, miny, maxx, maxy, ds.crs)
+        return shapes
+
+
+    MODES = {
+        'roi':      _clip_to_roi,
+        'bbox':     _clip_to_bbox,
+        'poi':      _clip_to_poi,
+        'fraction': _clip_to_fraction,
+        'geometry': _clip_to_geometry,
+    }
+    @staticmethod
+    def clip(src, mode, out_file, **kwargs) -> Raster:
+        """
+        Clip a raster and write the result to *out_file*.
+
+        Parameters
+        ----------
+        src : Raster or Path or str
+            Source raster.
+        mode : str
+            Clip mode — one of 'roi', 'bbox', 'poi', 'fraction', 'geometry'.
+        out_file : Path or str
+            Output file path.
+
+        Keyword arguments (vary by mode)
+        ---------------------------------
+        roi mode:
+            roi (str) — named ROI from ``plotea.maps.registry.ROIS``.
+        bbox mode:
+            bbox (tuple) — (minx, miny, maxx, maxy) in raster CRS.
+        poi mode:
+            poi (tuple) — (lon, lat) centre of square clip window.
+            half_width (float) — half-width of clip window (required).
+        fraction mode:
+            fraction (float) — centred fraction of raster extent, in (0, 1].
+        geometry mode:
+            geometry (GeoDataFrame) — vector geometry to clip to.
+            geometry_bbox (bool) — clip to bbox of geometry instead of exact shape.
+
+        Common kwargs (all modes):
+            pad (float) — fractional padding on each bbox side (default 0).
+            snap (bool) — snap bbox to pixel grid (default False).
+
+        Returns
+        -------
+        Raster
+            New Raster pointing at *out_file*.
+
+        Examples
+        --------
+        >>> clip(src, 'roi', out, roi='parnu', snap=True)
+        >>> clip(src, 'bbox', out, bbox=(24.5, 58.0, 26.0, 59.0))
+        >>> clip(src, 'poi', out, poi=(25.0, 58.5), half_width=0.5)
+        >>> clip(src, 'fraction', out, fraction=0.1)
+        >>> clip(src, 'geometry', out, geometry=gdf, geometry_bbox=True)
+        """
+        if mode not in RasterClipper.MODES:
+            raise ValueError(f"Unknown clip mode '{mode}'. Available: {list(RasterClipper.MODES)}")
+
+        import rasterio
+        src_path = src.path if isinstance(src, Raster) else Path(src)
+        out_file = Path(out_file)
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with rasterio.open(src_path) as ds:
+            shapes = RasterClipper.MODES[mode].__func__(ds, **kwargs)
+            RasterClipper._write_clip(ds, shapes, out_file)
+
+        _log.info(f"Clipped {src_path} → {out_file}")
+        return Raster(path=out_file)
+
+
+    # Various utility functions ──────────────────────────────────────────────────
+
+
 
 
 class RasterAnalyzer:
