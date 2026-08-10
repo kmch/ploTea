@@ -127,7 +127,7 @@ def panel_layout(fig, crs, main, rows, width: float = 16.0, gap: float = 0.015, 
             x += w + gap
         zoom_axes.append(axrow)
         y_top -= h + gap
-    _log.info('main + %d rows (%s zoom panels)', len(rows), sum(len(r) for r in rows))
+    _log.debug(f'main + {len(rows)} rows ({sum(len(r) for r in rows)} zoom panels)')
     return ax_main, zoom_axes
 
 # Order matters: candidates deal panels from this list, so it fixes which region is b,
@@ -202,7 +202,7 @@ def panel_layout_beside_below(fig, crs, main, beside, below, width: float = 16.0
     for aspect in below_aspect:
         axes.append(carto.new_axes(fig, crs, rect=rect(x, 0.0, aspect * below_h, below_h)))
         x += aspect * below_h + gap
-    _log.info('%d beside the overview, %d below', len(beside), len(below))
+    _log.debug(f'{len(beside)} beside the overview, {len(below)} below')
     return ax_main, axes
 
 ZOOMS = ['fr', 'iberia', 'gb', 'fi', 'pl_cz', 'it_north', 'lv_lt']
@@ -461,5 +461,5 @@ class LayoutPreview:
             path = out_dir / f'layout_{name}.png'
             fig.savefig(path, dpi=110)
             plt.close(fig)
-            _log.info('Wrote %s', path)
+            _log.info(f'Wrote {path}')
         return out_dir

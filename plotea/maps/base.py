@@ -177,5 +177,6 @@ class BaseMap:
         carto.draw_basemap(ax, extent=self.extent, resolution=self.resolution, style=self.style,\
              land=self.land, ocean=self.ocean, coastline=self.coastline, borders=self.borders, graticules=self.graticules, graticule_labels=self.graticule_labels, graticule_step=self.graticule_step, graticule_inward=self.graticule_inward)
         where = 'whole world' if self.extent is None else f'extent {self.extent}'
-        _log.info('%s, %s, resolution %s', where, type(ax.projection).__name__, self.resolution)
+        # DEBUG: one basemap is plumbing, and a layout draws eight of them per figure.
+        _log.debug(f'{where}, {type(ax.projection).__name__}, resolution {self.resolution}')
         return fig, ax
