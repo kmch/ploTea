@@ -318,7 +318,7 @@ class Raster:
             data = data * self.scale
         return data, extent
 
-    def pixel_metres(self, extent, shape):
+    def get_dx_dy(self, extent, shape):
         """
         Pixel spacing ``(dx, dy)`` in metres for a window of ``shape`` over ``extent``.
 
@@ -328,7 +328,7 @@ class Raster:
 
         Examples
         --------
-        >>> Raster(dem_path).pixel_metres((10, 15, 45, 50), (200, 200))
+        >>> Raster(dem_path).get_dx_dy((10, 15, 45, 50), (200, 200))
 
         """
         lon0, lon1, lat0, lat1 = extent
@@ -381,7 +381,7 @@ class Raster:
         data, extent = self.read(extent, max_px)
 
         if hillshade:
-            dx, dy = self.pixel_metres(extent, data.shape)
+            dx, dy = self.get_dx_dy(extent, data.shape)
             shade  = RasterPlotter.hillshaded(data, vert_exag=vert_exag, dx=dx, dy=dy)
             kwargs = {'cmap': 'gray', 'vmin': 0, 'vmax': 1, **kwargs}
             return RasterPlotter.imshow(shade, extent=extent, ax=ax, **kwargs)
