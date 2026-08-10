@@ -59,7 +59,7 @@ class BaseMap:
         The map projection. Defaults to Equal Earth; pass any cartopy CRS to
         override (e.g. ``crs=laea_eu()``).
     style : BasemapStyle, optional
-        Fill colours and line widths. Defaults to ``BASEMAP_PLAIN``.
+        Fill colours and line widths. Defaults to ``BASEMAP_STYLE_DEFAULT``.
     land, ocean, coastline, borders, graticules : bool
         Layer toggles. ``borders=True`` is what makes "the whole world with country
         outlines" a directly assertable default.

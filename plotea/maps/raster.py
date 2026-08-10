@@ -351,12 +351,12 @@ class Raster:
         """
         from dataclasses import replace
 
-        from plotea import BASEMAP_GREY, BaseMap, laea_eu
+        from plotea import BASEMAP_STYLE_DEFAULT, BaseMap, laea_eu
         from plotea.maps.cmaps import DiscreteCmap
 
         cmap   = cmap if cmap is not None else self.cmap
         scheme = cmap if isinstance(cmap, DiscreteCmap) else None
-        style  = replace(BASEMAP_GREY, land='#d9d9d9', graticule='black', border='white')
+        style  = replace(BASEMAP_STYLE_DEFAULT, land='#d9d9d9', graticule='black', border='white')
         # Grey land + blue ocean under the raster (so land outside it still shows), coastline
         # off -- the raster's own nodata edge is the coast, no coarse line over the data.
         fig, ax = BaseMap(bbox=bbox, crs=laea_eu(), style=style, coastline=False, graticule_step=10).plot(figsize=figsize)

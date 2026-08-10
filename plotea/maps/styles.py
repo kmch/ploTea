@@ -7,7 +7,7 @@ record ``draw_basemap`` reads its colours and line widths from.
 
 Notes
 -----
-``BasemapStyle`` is a frozen data record; ``BASEMAP_PLAIN`` and ``BASEMAP_MUTED``
+``BasemapStyle`` is a frozen data record; ``BASEMAP_STYLE_DEFAULT``
 are two ready-made instances. Line widths default below one point because at
 world scale a one-point coastline reads as a black smear; the publication style
 raises them.
@@ -36,10 +36,10 @@ class BasemapStyle:
 
     Examples
     --------
-    >>> BASEMAP_PLAIN.land
+    >>> BASEMAP_STYLE_DEFAULT.land
     'white'
     >>> from dataclasses import replace
-    >>> thick_borders = replace(BASEMAP_MUTED, border_width=0.8)
+    >>> thick_borders = replace(BASEMAP_STYLE_DEFAULT, border_width=0.8)
 
     """
     land: str = 'white'
@@ -75,14 +75,14 @@ class BasemapStyle:
 
         Examples
         --------
-        >>> BasemapStyle.from_any('muted') is BASEMAP_MUTED
+        >>> BasemapStyle.from_any('default') is BASEMAP_STYLE_DEFAULT
         True
-        >>> BasemapStyle.from_any(None) is BASEMAP_PLAIN
+        >>> BasemapStyle.from_any(None) is BASEMAP_STYLE_DEFAULT
         True
 
         """
         if style is None:
-            return BASEMAP_PLAIN
+            return BASEMAP_STYLE_DEFAULT
         if isinstance(style, BasemapStyle):
             return style
         if isinstance(style, str):
@@ -101,7 +101,7 @@ class BasemapStyle:
 # BASEMAP_GREY = BasemapStyle(land='#d9d9d9', ocean='#cfe1f2', coastline='#8c8c8c', coastline_width=0.4, border='#a6a6a6', border_width=0.3, graticule='#b0b0b0')
 
 BASEMAP_STYLE_DEFAULT = BasemapStyle(
-    land='dimgray', ocean='#cfe1f2', 
+    land='darkgrey', ocean='#cfe1f2', 
     coastline='#8c8c8c', coastline_width=1, 
     border='white', border_width=1, 
     graticule='white', graticule_width=1

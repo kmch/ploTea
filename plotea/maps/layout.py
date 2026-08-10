@@ -21,7 +21,7 @@ from plotea.log import get_logger
 from plotea.maps import carto
 from plotea.maps.base import BaseMap
 from plotea.generic.labels import panel_label
-from plotea.maps.styles import BASEMAP_GREY
+from plotea.maps.styles import BASEMAP_STYLE_DEFAULT
 from plotea.maps.crs import laea_eu
 from plotea.maps.vector import Bbox
 
@@ -132,8 +132,81 @@ def panel_layout(fig, crs, main, rows, width: float = 16.0, gap: float = 0.015, 
 
 # Order matters: candidates deal panels from this list, so it fixes which region is b,
 # c, d ... Reads west to east along the top row, then north to south along the bottom.
+def panel_layout_beside_below(fig, crs, main, beside, below, width: float = 16.0, gap: float = 0.015, margin: float = 0.02):
+    """
+    Lay out an overview, a row of panels beside it at its height, and a row below; return the axes.
+
+    The panels beside the overview are as tall as it is, so the top block reads as one band;
+    the row below is justified to that block's width, so its panels come out shorter and
+    wider. Two sizes of panel rather than one per region, which is what lets the eye group
+    them without reading the letters.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure to build in; its size is set to the layout's natural aspect.
+    crs : cartopy.crs.CRS
+        The projection every panel is drawn in; sets the panel aspect ratios.
+    main : str or list or Bbox
+        The overview's region.
+    beside, below : sequence of (str or list or Bbox)
+        Regions for the row beside the overview and the row under it.
+    width : float
+        Target figure width in inches; the height follows from the layout.
+    gap : float
+        Gap between panels, in units of the overview's height.
+    margin : float
+        Figure-fraction margin around the whole layout.
+
+    Returns
+    -------
+    ax_main : LonLatAxes
+    zoom_axes : list of LonLatAxes
+        The ``beside`` axes then the ``below`` ones, in the order given.
+
+    Notes
+    -----
+    In layout units the overview is 1 tall and ``aspect`` wide, so a panel beside it is 1
+    tall and its own aspect wide. The row below justifies to the resulting total width. The
+    figure is then sized to the layout's aspect, so one unit is the same length in x and y
+    and each rectangle already has its panel's aspect -- no equal-aspect shrink, no gaps.
+
+    Examples
+    --------
+    >>> ax_eu, zooms = panel_layout_beside_below(fig, laea_eu(), 'eu',
+    ...     beside=['fr', 'iberia', 'gb'], below=['fi', 'pl_cz', 'it_north', 'lv_lt'])
+
+    """
+    main_aspect   = _aspect(main, crs)
+    beside_aspect = [_aspect(b, crs) for b in beside]
+    below_aspect  = [_aspect(b, crs) for b in below]
+
+    top_w   = main_aspect + gap + sum(beside_aspect) + (len(beside) - 1) * gap
+    below_h = (top_w - (len(below) - 1) * gap) / sum(below_aspect) if below else 0.0
+    total_h = 1.0 + (gap + below_h if below else 0.0)
+    box     = 1.0 - 2 * margin
+    fig.set_size_inches(width, width * (box * total_h) / (top_w * box))
+    sx, sy  = box / top_w, box / total_h
+
+    def rect(x, y, w, h):
+        """Layout-unit box (y from the bottom) -> figure-fraction rectangle."""
+        return [margin + x * sx, margin + y * sy, w * sx, h * sy]
+
+    top_y   = total_h - 1.0
+    ax_main = carto.new_axes(fig, crs, rect=rect(0.0, top_y, main_aspect, 1.0))
+    axes, x = [], main_aspect + gap
+    for aspect in beside_aspect:
+        axes.append(carto.new_axes(fig, crs, rect=rect(x, top_y, aspect, 1.0)))
+        x += aspect + gap
+    x = 0.0
+    for aspect in below_aspect:
+        axes.append(carto.new_axes(fig, crs, rect=rect(x, 0.0, aspect * below_h, below_h)))
+        x += aspect * below_h + gap
+    _log.info('%d beside the overview, %d below', len(beside), len(below))
+    return ax_main, axes
+
 ZOOMS = ['fr', 'iberia', 'gb', 'fi', 'pl_cz', 'it_north', 'lv_lt']
-STYLE = BASEMAP_GREY
+STYLE = BASEMAP_STYLE_DEFAULT
 BOX   = dict(edgecolor='#e06666', linestyle=(0, (4, 3)), facecolor='none', linewidth=1.2, zorder=5)
 
 class LayoutPreview:
@@ -241,33 +314,11 @@ class LayoutPreview:
 
         """
         beside, below = self.zooms[:n_beside], self.zooms[n_beside:]
-        main_aspect   = _aspect(self.main, self.crs)
-        beside_aspect = [_aspect(z, self.crs) for z in beside]
-        below_aspect  = [_aspect(z, self.crs) for z in below]
-
-        # Layout units: the overview is 1 tall, so a panel beside it is 1 tall and its own
-        # aspect wide. The row below justifies to whatever total width that comes to.
-        top_w    = main_aspect + gap + sum(beside_aspect) + (len(beside) - 1) * gap
-        below_h  = (top_w - (len(below) - 1) * gap) / sum(below_aspect) if below else 0.0
-        total_h  = 1.0 + (gap + below_h if below else 0.0)
-        box      = 1.0 - 2 * margin
-        fig.set_size_inches(self.width, self.width * (box * total_h) / (top_w * box))
-        sx, sy   = box / top_w, box / total_h
-
-        def rect(x, y, w, h):
-            """Layout-unit box (y from the bottom) -> figure-fraction rectangle."""
-            return [margin + x * sx, margin + y * sy, w * sx, h * sy]
-
-        top_y   = total_h - 1.0
-        ax_main = self.axes(fig, rect(0.0, top_y, main_aspect, 1.0), self.main)
-        axes, x = [], main_aspect + gap
-        for name, aspect in zip(beside, beside_aspect):
-            axes.append(self.axes(fig, rect(x, top_y, aspect, 1.0), name))
-            x += aspect + gap
-        x = 0.0
-        for name, aspect in zip(below, below_aspect):
-            axes.append(self.axes(fig, rect(x, 0.0, aspect * below_h, below_h), name))
-            x += aspect * below_h + gap
+        ax_main, axes = panel_layout_beside_below(fig, self.crs, self.main, beside, below,
+                                                  width=self.width, gap=gap, margin=margin)
+        self.basemap(ax_main, self.main)
+        for ax, region in zip(axes, list(beside) + list(below)):
+            self.basemap(ax, region)
         return ax_main, axes, list(beside) + list(below)
 
     def grid(self, fig, ncols=4, nrows=3, main_span=2, gap=0.012, margin=0.02):

@@ -65,7 +65,7 @@ from matplotlib.image import AxesImage
 from shapely.geometry import box as _box
 
 from plotea.log import get_logger
-from plotea.maps.styles import BASEMAP_PLAIN, BasemapStyle
+from plotea.maps.styles import BASEMAP_STYLE_DEFAULT, BasemapStyle
 
 _log = get_logger(__name__)
 
@@ -338,7 +338,7 @@ def draw_ocean(ax, resolution: str = '50m', color: str = '#cfe1f2', zorder: floa
         gdf.to_crs(ax.projection).plot(ax=ax, facecolor=color, edgecolor='none', transform=ax.projection, zorder=zorder)
 
 
-def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: bool = True, ocean: bool = True, coastline: bool = True, borders: bool = True, graticules: bool = True, graticule_labels: bool = True, graticule_step=None, graticule_inward: bool = False, resolution: str = '50m') -> None:
+def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_STYLE_DEFAULT, land: bool = True, ocean: bool = True, coastline: bool = True, borders: bool = True, graticules: bool = True, graticule_labels: bool = True, graticule_step=None, graticule_inward: bool = False, resolution: str = '50m') -> None:
     """
     Draw land, ocean, coastlines, country borders and graticules onto a map axes.
 
@@ -349,7 +349,7 @@ def draw_basemap(ax, extent=None, style: BasemapStyle = BASEMAP_PLAIN, land: boo
     extent : list or None
         [lon_min, lon_max, lat_min, lat_max] in degrees, or None for the whole world.
     style : BasemapStyle
-        Fill colours and line widths. Defaults to ``BASEMAP_PLAIN``.
+        Fill colours and line widths. Defaults to ``BASEMAP_STYLE_DEFAULT``.
     land, ocean, coastline, borders, graticules : bool
         Layer toggles. ``borders=True`` is what puts country outlines on the map.
     resolution : str
