@@ -132,7 +132,26 @@ def panel_layout(fig, crs, main, rows, width: float = 16.0, gap: float = 0.015, 
 
 # Order matters: candidates deal panels from this list, so it fixes which region is b,
 # c, d ... Reads west to east along the top row, then north to south along the bottom.
-def panel_layout_beside_below(fig, crs, main, beside, below, width: float = 16.0, gap: float = 0.015, margin: float = 0.02):
+def beside_below_units(crs, main, beside, below, gap: float = 0.015):
+    """
+    The layout's ``(width, height)`` in layout units, before it is placed in a figure.
+
+    Lets a caller that wants other panels above or below work out how tall the map
+    block will be, and size the figure for the lot.
+
+    Examples
+    --------
+    >>> beside_below_units(laea_eu(), 'eu', ['fr'], ['pl_cz', 'fi'])
+
+    """
+    main_aspect   = _aspect(main, crs)
+    beside_aspect = [_aspect(b, crs) for b in beside]
+    below_aspect  = [_aspect(b, crs) for b in below]
+    total_w = main_aspect + gap + sum(beside_aspect) + (len(beside) - 1) * gap
+    below_h = (total_w - (len(below) - 1) * gap) / sum(below_aspect) if below else 0.0
+    return total_w, 1.0 + (gap + below_h if below else 0.0)
+
+def panel_layout_beside_below(fig, crs, main, beside, below, width: float = 16.0, gap: float = 0.015, margin: float = 0.02, rect=None):
     """
     Lay out an overview, a row of panels beside it at its height, and a row below; return the axes.
 
@@ -152,11 +171,16 @@ def panel_layout_beside_below(fig, crs, main, beside, below, width: float = 16.0
     beside, below : sequence of (str or list or Bbox)
         Regions for the row beside the overview and the row under it.
     width : float
-        Target figure width in inches; the height follows from the layout.
+        Target figure width in inches; the height follows from the layout. Ignored when
+        ``rect`` is given -- the caller has already sized the figure.
     gap : float
         Gap between panels, in units of the overview's height.
     margin : float
-        Figure-fraction margin around the whole layout.
+        Figure-fraction margin around the whole layout, when it fills the figure.
+    rect : tuple of float, optional
+        ``(left, bottom, width, height)`` in figure fractions to lay out within, for a
+        figure that carries other panels too. The block keeps its aspect and is centred
+        vertically in the rectangle; ``beside_below_units`` says how tall it will be.
 
     Returns
     -------
@@ -184,23 +208,33 @@ def panel_layout_beside_below(fig, crs, main, beside, below, width: float = 16.0
     top_w   = main_aspect + gap + sum(beside_aspect) + (len(beside) - 1) * gap
     below_h = (top_w - (len(below) - 1) * gap) / sum(below_aspect) if below else 0.0
     total_h = 1.0 + (gap + below_h if below else 0.0)
-    box     = 1.0 - 2 * margin
-    fig.set_size_inches(width, width * (box * total_h) / (top_w * box))
-    sx, sy  = box / top_w, box / total_h
+    if rect is None:                                   # the layout fills the figure
+        box = 1.0 - 2 * margin
+        fig.set_size_inches(width, width * (box * total_h) / (top_w * box))
+        rect = (margin, margin, box, box)
+    left, bottom, box_w, box_h = rect
 
-    def rect(x, y, w, h):
+    # One layout unit must be the same length in x and y, and a figure fraction is not:
+    # it scales by the figure's width in x and its height in y. Fit to the width, then
+    # centre what that costs in height inside the rectangle given.
+    fig_w, fig_h = fig.get_size_inches()
+    sx = box_w / top_w
+    sy = sx * fig_w / fig_h
+    bottom += max(0.0, box_h - total_h * sy) / 2
+
+    def place(x, y, w, h):
         """Layout-unit box (y from the bottom) -> figure-fraction rectangle."""
-        return [margin + x * sx, margin + y * sy, w * sx, h * sy]
+        return [left + x * sx, bottom + y * sy, w * sx, h * sy]
 
     top_y   = total_h - 1.0
-    ax_main = carto.new_axes(fig, crs, rect=rect(0.0, top_y, main_aspect, 1.0))
+    ax_main = carto.new_axes(fig, crs, rect=place(0.0, top_y, main_aspect, 1.0))
     axes, x = [], main_aspect + gap
     for aspect in beside_aspect:
-        axes.append(carto.new_axes(fig, crs, rect=rect(x, top_y, aspect, 1.0)))
+        axes.append(carto.new_axes(fig, crs, rect=place(x, top_y, aspect, 1.0)))
         x += aspect + gap
     x = 0.0
     for aspect in below_aspect:
-        axes.append(carto.new_axes(fig, crs, rect=rect(x, 0.0, aspect * below_h, below_h)))
+        axes.append(carto.new_axes(fig, crs, rect=place(x, 0.0, aspect * below_h, below_h)))
         x += aspect * below_h + gap
     _log.debug(f'{len(beside)} beside the overview, {len(below)} below')
     return ax_main, axes
