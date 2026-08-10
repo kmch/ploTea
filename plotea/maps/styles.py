@@ -101,7 +101,7 @@ class BasemapStyle:
 # BASEMAP_GREY = BasemapStyle(land='#d9d9d9', ocean='#cfe1f2', coastline='#8c8c8c', coastline_width=0.4, border='#a6a6a6', border_width=0.3, graticule='#b0b0b0')
 
 BASEMAP_STYLE_DEFAULT = BasemapStyle(
-    land='darkgrey', ocean='lightblue', 
+    land='darkgrey', ocean='#cfe1f2', 
     coastline='#8c8c8c', coastline_width=1, 
     border='white', border_width=1, 
     graticule='white', graticule_width=1

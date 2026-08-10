@@ -11,7 +11,7 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import Polygon
 
-from plotea.maps.styles import BASEMAP_MUTED, BASEMAP_PLAIN, BasemapStyle
+from plotea.maps.styles import BASEMAP_STYLE_DEFAULT, BasemapStyle
 from plotea.maps.crs import Crs, equal_earth
 from plotea.maps.vector import Bbox
 
@@ -66,8 +66,8 @@ def test_style_from_any():
     >>> test_style_from_any()
 
     """
-    assert BasemapStyle.from_any(None) is BASEMAP_PLAIN
-    assert BasemapStyle.from_any('muted') is BASEMAP_MUTED
+    assert BasemapStyle.from_any(None) is BASEMAP_STYLE_DEFAULT
+    assert BasemapStyle.from_any('default') is BASEMAP_STYLE_DEFAULT
     custom = BasemapStyle(land='black')
     assert BasemapStyle.from_any(custom) is custom
     with pytest.raises(KeyError):
