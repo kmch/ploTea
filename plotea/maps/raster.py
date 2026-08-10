@@ -253,7 +253,7 @@ class Raster:
         stream_mask = (streams.values != 0) & ~np.isnan(streams.values.astype(float))
         masked_data = self.data.where(stream_mask)
         return Raster(data=masked_data)
-    def plot(self, ax=None, bbox=None, max_px=2000, hillshade=False, cmap=None, vmin=None, vmax=None, vert_exag=2.5, **kwargs):
+    def plot(self, ax=None, bbox=None, max_px=2000, hillshade=False, cmap=None, vmin=None, vmax=None, resampling=None, vert_exag=2.5, **kwargs):
         """
         Draw the raster on an axes: its values, or shaded relief made from them.
 
@@ -277,6 +277,8 @@ class Raster:
             Overrides ``self.cmap``; a ``DiscreteCmap`` draws with its own norm.
         vmin, vmax : float, optional
             Colour limits; ``self.robust`` picks the 2-98% range when neither is given.
+        resampling : str, optional
+            Overrides ``self.resampling`` for the read behind this plot.
         vert_exag : float
             Vertical exaggeration, when ``hillshade``.
         **kwargs
@@ -301,7 +303,7 @@ class Raster:
             raise TypeError('plot() takes bbox=, not extent= -- a region name, a '
                             '[minx, miny, maxx, maxy] box, or a Bbox. (read() takes extent=.)')
         extent = Bbox.from_any(bbox).extent if bbox is not None else None
-        data, extent = self.read(extent, max_px)
+        data, extent = self.read(extent, max_px, resampling=resampling)
 
         if hillshade:
             dx, dy = self.get_dx_dy(extent, data.shape)
@@ -319,7 +321,7 @@ class Raster:
             kwargs = {'cmap': cmap, 'vmin': vmin, 'vmax': vmax, **kwargs}
         return RasterPlotter.imshow(data, extent=extent, ax=ax, **kwargs)
 
-    def plot_map(self, bbox='eu', cmap=None, max_px=2000, hillshade=False, vmin=None, vmax=None, label=None, title=None, figsize=(8, 8)):
+    def plot_map(self, bbox='eu', cmap=None, max_px=2000, hillshade=False, vmin=None, vmax=None, resampling=None, label=None, title=None, figsize=(8, 8)):
         """
         Plot the raster over ``bbox`` (default Europe) with an inset colorbar (fig01 overview style).
 
@@ -361,8 +363,8 @@ class Raster:
         # Grey land + blue ocean under the raster (so land outside it still shows), coastline
         # off -- the raster's own nodata edge is the coast, no coarse line over the data.
         fig, ax = BaseMap(bbox=bbox, crs=laea_eu(), style=style, coastline=False, graticule_step=10).plot(figsize=figsize)
-        im = self.plot(ax=ax, bbox=bbox, max_px=max_px, hillshade=hillshade,
-                       cmap=cmap, vmin=vmin, vmax=vmax, zorder=0.5)
+        im = self.plot(ax=ax, bbox=bbox, max_px=max_px, hillshade=hillshade, cmap=cmap,
+                       vmin=vmin, vmax=vmax, resampling=resampling, zorder=0.5)
         # Horizontal colorbar in the top-left corner -- over the NW-Atlantic / Iceland, off the data.
         wide = 0.46 if scheme is not None else 0.30            # class rasters get a wider bar for their labels
         cax = ax.inset_axes([0.04, 0.90, wide, 0.02])
@@ -381,7 +383,7 @@ class Raster:
             ax.set_title(title)
         return fig, ax
 
-    def read(self, extent=None, max_px: int = 2000):
+    def read(self, extent=None, max_px: int = 2000, resampling=None):
         """
         Read a decimated window over ``extent`` (lon0, lon1, lat0, lat1); whole raster if None.
 
@@ -394,6 +396,9 @@ class Raster:
             ``(lon_min, lon_max, lat_min, lat_max)``; the raster's own bounds if None.
         max_px : int
             Target size of the longer output side.
+        resampling : str, optional
+            Overrides ``self.resampling`` for this read -- 'average' for continuous values,
+            'nearest' for a class raster, whose codes averaging would invent classes for.
 
         Returns
         -------
@@ -420,7 +425,8 @@ class Raster:
             win = from_bounds(lon0, lat0, lon1, lat1, ds.transform)
             scale = min(1.0, max_px / max(win.width, win.height))
             out = (max(1, round(win.height * scale)), max(1, round(win.width * scale)))
-            data = ds.read(1, window=win, out_shape=out, resampling=Resampling[self.resampling], masked=True, boundless=True)
+            how  = resampling if resampling is not None else self.resampling
+            data = ds.read(1, window=win, out_shape=out, resampling=Resampling[how], masked=True, boundless=True)
             if ds.nodata is not None:                               # external .ovr overviews may drop the nodata -> mask it explicitly
                 data = np.ma.masked_equal(data, ds.nodata)
         if self.scale != 1.0:                                       # -> physical units for the colour scale

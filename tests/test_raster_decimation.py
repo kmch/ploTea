@@ -203,3 +203,22 @@ def test_window_smaller_than_max_px_is_not_upsampled(raster_path):
     extent  = (ORIGIN[0], ORIGIN[0] + 50 * PIXEL, ORIGIN[1] - 50 * PIXEL, ORIGIN[1])
     data, _ = Raster(raster_path).read(extent, max_px=5000)
     assert data.shape == (50, 50), f'{data.shape}: a 50 px window should stay 50 px'
+
+
+def test_resampling_can_be_overridden_per_call(raster_path):
+    """
+    ``read``/``plot`` take a ``resampling=`` that wins over the one set on the Raster.
+
+    Set once for a raster that is always a class raster; overridden when a single call
+    wants the other behaviour -- e.g. a quick continuous preview of coded data.
+
+    Examples
+    --------
+    >>> test_resampling_can_be_overridden_per_call(path)
+
+    """
+    averaging = Raster(raster_path, resampling='average')
+    default, _  = averaging.read(whole_extent(), max_px=100)
+    override, _ = averaging.read(whole_extent(), max_px=100, resampling='nearest')
+    assert not np.allclose(default.compressed(), override.compressed()), 'the override changed nothing'
+    assert np.all(override.compressed() == np.round(override.compressed()))   # nearest keeps source values
