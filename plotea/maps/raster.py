@@ -265,7 +265,8 @@ class Raster:
         ax : LonLatAxes, optional
             Axes to draw on; the current axes if None.
         bbox : str or list or Bbox, optional
-            Window to read and draw; the whole raster if None.
+            Window to read and draw; the whole raster if None -- which for a continental
+            VRT means reading every pixel, so pass one.
         max_px : int
             Decimation target for the read.
         hillshade : bool
@@ -294,6 +295,11 @@ class Raster:
         from plotea.maps.cmaps import DiscreteCmap
         from plotea.maps.vector import Bbox
 
+        # extent= would otherwise land in **kwargs, leaving bbox None: the whole raster gets
+        # read (minutes, for a continental VRT) before imshow rejects the duplicate keyword.
+        if 'extent' in kwargs:
+            raise TypeError('plot() takes bbox=, not extent= -- a region name, a '
+                            '[minx, miny, maxx, maxy] box, or a Bbox. (read() takes extent=.)')
         extent = Bbox.from_any(bbox).extent if bbox is not None else None
         data, extent = self.read(extent, max_px)
 
@@ -449,7 +455,6 @@ class Raster:
                               dst_transform=transform, dst_crs=target, resampling=Resampling.nearest)
         _log.info('Reprojected %s to %s -> %s', self.path, target, out_file)
         return Raster(path=out_file)
-
 
 class RasterAnalyzer:
     """
