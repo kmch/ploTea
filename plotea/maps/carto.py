@@ -494,7 +494,7 @@ def visible_bbox(ax):
     Examples
     --------
     >>> HydroRivers(path, bbox=visible_bbox(ax)).plot(ax=ax)   # rivers fill the panel
-    >>> dem, ext = Raster(src).read(visible_bbox(ax).extent)   # DEM covers it, no white corners
+    >>> dem, ext = Raster(src).read_window(visible_bbox(ax))   # DEM covers it, no white corners
 
     """
     from plotea.maps.vector import Bbox

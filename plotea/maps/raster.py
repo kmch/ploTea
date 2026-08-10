@@ -22,7 +22,7 @@ class Raster:
 
     ``Raster()`` takes no arguments, so an empty one can be filled in later; with a ``path``
     the data is read lazily, on first access, and never on construction. Two ways in:
-    ``data`` gives the whole thing as an xarray DataArray (for analysis), ``read`` a
+    ``data`` gives the whole thing as an xarray DataArray (for analysis), ``read_window`` a
     decimated window (for plotting a continent without loading a continent).
 
     Parameters
@@ -58,7 +58,7 @@ class Raster:
     --------
     >>> Raster()                                                   # fill in later
     >>> Raster('/data/merit_elv.vrt', cmap='terrain', scale=0.01, unit='m').plot_map()
-    >>> data, extent = Raster('/data/merit_twi.vrt').read((-10, 30, 35, 72), max_px=1000)
+    >>> data, extent = Raster('/data/merit_twi.vrt').read_window('eu', max_px=1000)
 
     """
 
@@ -295,15 +295,13 @@ class Raster:
 
         """
         from plotea.maps.cmaps import DiscreteCmap
-        from plotea.maps.vector import Bbox
 
         # extent= would otherwise land in **kwargs, leaving bbox None: the whole raster gets
         # read (minutes, for a continental VRT) before imshow rejects the duplicate keyword.
         if 'extent' in kwargs:
             raise TypeError('plot() takes bbox=, not extent= -- a region name, a '
-                            '[minx, miny, maxx, maxy] box, or a Bbox. (read() takes extent=.)')
-        extent = Bbox.from_any(bbox).extent if bbox is not None else None
-        data, extent = self.read(extent, max_px, resampling=resampling)
+                            '[minx, miny, maxx, maxy] box, or a Bbox.')
+        data, extent = self.read_window(bbox, max_px, resampling=resampling)
 
         if hillshade:
             dx, dy = self.get_dx_dy(extent, data.shape)
@@ -355,7 +353,6 @@ class Raster:
 
         from plotea import BASEMAP_GREY, BaseMap, laea_eu
         from plotea.maps.cmaps import DiscreteCmap
-        from plotea.maps.vector import Bbox
 
         cmap   = cmap if cmap is not None else self.cmap
         scheme = cmap if isinstance(cmap, DiscreteCmap) else None
@@ -383,17 +380,22 @@ class Raster:
             ax.set_title(title)
         return fig, ax
 
-    def read(self, extent=None, max_px: int = 2000, resampling=None):
+    def read_window(self, bbox=None, max_px: int = 2000, resampling=None):
         """
-        Read a decimated window over ``extent`` (lon0, lon1, lat0, lat1); whole raster if None.
+        Read one decimated window: a masked array plus the extent it covers.
 
-        Decimates to about ``max_px`` on the longer side using ``self.resampling``, so a
-        continent-sized raster can be plotted without reading it at full resolution.
+        Decimates to about ``max_px`` on the longer side, so a continent-sized raster can be
+        drawn without reading it at full resolution. Returns rather than stores: the window
+        depends on every argument here, so caching it on the instance would leave ``data``
+        and the properties derived from it meaning whatever was last asked for.
 
         Parameters
         ----------
-        extent : sequence of float, optional
-            ``(lon_min, lon_max, lat_min, lat_max)``; the raster's own bounds if None.
+        bbox : str or list or Bbox, optional
+            The window: a region name, a ``[minx, miny, maxx, maxy]`` box, or a ``Bbox``.
+            The whole raster if None. Note this is a bbox, not an extent -- pass
+            ``Bbox.from_any(...)`` rather than someone's ``.extent`` tuple, whose order is
+            ``(xmin, xmax, ymin, ymax)``.
         max_px : int
             Target size of the longer output side.
         resampling : str, optional
@@ -408,15 +410,18 @@ class Raster:
 
         Examples
         --------
-        >>> data, extent = Raster('/data/merit_twi.vrt').read((-10, 30, 35, 72))
+        >>> data, extent = Raster('/data/merit_twi.vrt').read_window('eu', max_px=800)
 
         """
         import rasterio
         from rasterio.enums import Resampling
         from rasterio.windows import from_bounds
 
+        from plotea.maps.vector import Bbox
+
         if self.path is None:
-            raise ValueError('read needs a file: build the Raster with a path.')
+            raise ValueError('read_window needs a file: build the Raster with a path.')
+        extent = Bbox.from_any(bbox).extent if bbox is not None else None
         with rasterio.open(self.path) as ds:
             if extent is None:
                 b = ds.bounds

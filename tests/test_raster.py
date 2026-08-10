@@ -87,9 +87,9 @@ def test_raster_plot_hillshade_switches_the_scale():
     from plotea.maps.raster import Raster
 
     class FakeRaster(Raster):
-        """A Raster whose read() returns a synthetic DEM, so the test needs no file."""
+        """A Raster whose read_window() returns a synthetic DEM, so the test needs no file."""
 
-        def read(self, extent=None, max_px=2000, resampling=None):
+        def read_window(self, bbox=None, max_px=2000, resampling=None):
             return np.ma.array(_dem()), (-4.762, 9.556, 41.384, 51.097)
 
     _, ax  = BaseMap(bbox='fr', crs='laea_eu').plot()

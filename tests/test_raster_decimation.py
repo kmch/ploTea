@@ -46,16 +46,19 @@ def raster_path(tmp_path):
     return path
 
 
-def whole_extent():
+def whole_bbox():
     """
-    The synthetic raster's full extent, as ``read`` wants it (lon0, lon1, lat0, lat1).
+    The synthetic raster's full footprint as a bbox -- ``[minx, miny, maxx, maxy]``.
+
+    Note the order: a bbox is not an extent. ``read_window`` takes the former, and echoes
+    back the latter for plotting.
 
     Examples
     --------
-    >>> whole_extent()
+    >>> whole_bbox()
 
     """
-    return (ORIGIN[0], ORIGIN[0] + SIDE * PIXEL, ORIGIN[1] - SIDE * PIXEL, ORIGIN[1])
+    return [ORIGIN[0], ORIGIN[1] - SIDE * PIXEL, ORIGIN[0] + SIDE * PIXEL, ORIGIN[1]]
 
 
 def test_read_decimates_to_max_px(raster_path):
@@ -68,9 +71,10 @@ def test_read_decimates_to_max_px(raster_path):
 
     """
     for max_px in (50, 150, 400):
-        data, extent = Raster(raster_path).read(whole_extent(), max_px=max_px)
+        data, extent = Raster(raster_path).read_window(whole_bbox(), max_px=max_px)
         assert max(data.shape) == max_px, f'{data.shape} for max_px={max_px}'
-        assert extent == whole_extent()          # the extent is echoed unchanged
+        minx, miny, maxx, maxy = whole_bbox()
+        assert extent == (minx, maxx, miny, maxy)     # the window read, in extent order
 
 
 def test_read_allocates_far_less_than_the_whole_raster(raster_path):
@@ -89,7 +93,7 @@ def test_read_allocates_far_less_than_the_whole_raster(raster_path):
     def peak_bytes(max_px):
         """Peak Python allocation while reading, in bytes."""
         tracemalloc.start()
-        Raster(raster_path).read(whole_extent(), max_px=max_px)
+        Raster(raster_path).read_window(whole_bbox(), max_px=max_px)
         peak = tracemalloc.get_traced_memory()[1]
         tracemalloc.stop()
         return peak
@@ -118,9 +122,9 @@ def test_read_cost_does_not_follow_the_source_size(tmp_path):
                            dtype='float32', crs='EPSG:4326',
                            transform=from_origin(ORIGIN[0], ORIGIN[1], PIXEL, PIXEL)) as ds:
             ds.write(np.zeros((side, side), dtype='float32'), 1)
-        extent = (ORIGIN[0], ORIGIN[0] + side * PIXEL, ORIGIN[1] - side * PIXEL, ORIGIN[1])
+        bbox = [ORIGIN[0], ORIGIN[1] - side * PIXEL, ORIGIN[0] + side * PIXEL, ORIGIN[1]]
         tracemalloc.start()
-        Raster(path).read(extent, max_px=100)
+        Raster(path).read_window(bbox, max_px=100)
         peaks[side] = tracemalloc.get_traced_memory()[1]
         tracemalloc.stop()
     assert peaks[2400] < 2 * peaks[600], f'16x the source cost {peaks[2400] / peaks[600]:.1f}x the memory'
@@ -137,7 +141,7 @@ def test_average_decimation_gives_block_means(raster_path):
     """
     factor    = 12
     max_px    = SIDE // factor
-    data, _   = Raster(raster_path, resampling='average').read(whole_extent(), max_px=max_px)
+    data, _   = Raster(raster_path, resampling='average').read_window(whole_bbox(), max_px=max_px)
     rows      = np.arange(SIDE, dtype=float).reshape(max_px, factor)
     expected  = rows.mean(axis=1)                # the ramp is constant along each row
     assert data.shape == (max_px, max_px)
@@ -156,7 +160,7 @@ def test_nearest_decimation_keeps_the_original_values(raster_path):
     >>> test_nearest_decimation_keeps_the_original_values(path)
 
     """
-    data, _ = Raster(raster_path, resampling='nearest').read(whole_extent(), max_px=100)
+    data, _ = Raster(raster_path, resampling='nearest').read_window(whole_bbox(), max_px=100)
     values  = np.unique(data.compressed())
     assert np.all(values == np.round(values))    # row indices are integers; no averaging
     assert set(values.tolist()) <= set(range(SIDE))
@@ -171,7 +175,7 @@ def test_nodata_survives_decimation(raster_path):
     >>> test_nodata_survives_decimation(path)
 
     """
-    data, _ = Raster(raster_path, resampling='nearest').read(whole_extent(), max_px=120)
+    data, _ = Raster(raster_path, resampling='nearest').read_window(whole_bbox(), max_px=120)
     assert data.mask[:5, :5].all(), 'the nodata corner should be masked'
     assert not data.mask[-5:, -5:].any(), 'the far corner has data'
     assert data.min() >= 0, 'no nodata leaked into the values'
@@ -186,8 +190,8 @@ def test_scale_is_applied_after_decimation(raster_path):
     >>> test_scale_is_applied_after_decimation(path)
 
     """
-    plain, _  = Raster(raster_path).read(whole_extent(), max_px=100)
-    scaled, _ = Raster(raster_path, scale=0.01).read(whole_extent(), max_px=100)
+    plain, _  = Raster(raster_path).read_window(whole_bbox(), max_px=100)
+    scaled, _ = Raster(raster_path, scale=0.01).read_window(whole_bbox(), max_px=100)
     np.testing.assert_allclose(scaled.compressed(), plain.compressed() * 0.01, rtol=1e-6)
 
 
@@ -200,8 +204,8 @@ def test_window_smaller_than_max_px_is_not_upsampled(raster_path):
     >>> test_window_smaller_than_max_px_is_not_upsampled(path)
 
     """
-    extent  = (ORIGIN[0], ORIGIN[0] + 50 * PIXEL, ORIGIN[1] - 50 * PIXEL, ORIGIN[1])
-    data, _ = Raster(raster_path).read(extent, max_px=5000)
+    bbox    = [ORIGIN[0], ORIGIN[1] - 50 * PIXEL, ORIGIN[0] + 50 * PIXEL, ORIGIN[1]]
+    data, _ = Raster(raster_path).read_window(bbox, max_px=5000)
     assert data.shape == (50, 50), f'{data.shape}: a 50 px window should stay 50 px'
 
 
@@ -218,7 +222,7 @@ def test_resampling_can_be_overridden_per_call(raster_path):
 
     """
     averaging = Raster(raster_path, resampling='average')
-    default, _  = averaging.read(whole_extent(), max_px=100)
-    override, _ = averaging.read(whole_extent(), max_px=100, resampling='nearest')
+    default, _  = averaging.read_window(whole_bbox(), max_px=100)
+    override, _ = averaging.read_window(whole_bbox(), max_px=100, resampling='nearest')
     assert not np.allclose(default.compressed(), override.compressed()), 'the override changed nothing'
     assert np.all(override.compressed() == np.round(override.compressed()))   # nearest keeps source values
