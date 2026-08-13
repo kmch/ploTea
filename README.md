@@ -10,7 +10,7 @@ A framework for data-rich, interactive, publication-quality figures. Making the 
   - by `pyvista` (`vtk`-powered),
   - by `ipyvolume` (`OpenGL`-powered), 
 - interactive display of associated metadata using `ipywidgets` and `plotly`,
-- geographical coordinate-systems provided by `pygmt`.
+- geographical coordinate-systems provided by `cartopy`.
 
 ## Installation
 For the lastest stable version run:
