@@ -36,5 +36,6 @@ from plotea.maps.carto import *
 from plotea.maps.base import *
 from plotea.maps.layout import *
 from plotea.maps.raster import *
+from plotea.maps.swath import *
 
 init_logging()
