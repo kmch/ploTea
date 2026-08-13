@@ -190,10 +190,10 @@ class Swath:
         fig, ax = BaseMap(bbox=bbox).plot(ax=ax, fig=fig, figsize=figsize)
         mesh    = self.plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, max_px=max_px, **kwargs)
         if colorbar:
+            from plotea.maps.colorbar import Colorbar
+
             base = f'{self.label} ({self.unit})' if self.unit else self.label
-            bar  = fig.colorbar(mesh, ax=ax, orientation='vertical', shrink=0.7, pad=0.03)
-            bar.set_label(base, fontsize=8)
-            bar.ax.tick_params(labelsize=7)
+            Colorbar.attach(mesh, ax, label=base)
         if title is not None:
             ax.set_title(title)
         return fig, ax

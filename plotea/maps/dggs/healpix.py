@@ -21,6 +21,15 @@ __all__ = ['HealpixCells']
 
 _log = get_logger(__name__)
 
+# Above this many cells, outlining each one stops being a picture: the edges alone cover
+# the page. Roughly where a level-10 granule lands, and the point to switch to plot_raster.
+OUTLINE_LIMIT = 20000
+
+# Below this share of the cells tiling the data's extent, resampling onto a regular grid
+# finds almost nothing and the image comes out blank. A bijective re-indexing sits many
+# orders of magnitude under it; a properly resampled map sits near 1.
+SPARSE_LIMIT = 0.05
+
 
 class HealpixCells:
     """
@@ -107,6 +116,51 @@ class HealpixCells:
         return [float(corners[..., 0].min()), float(corners[..., 0].max()),
                 float(corners[..., 1].min()), float(corners[..., 1].max())]
 
+    @property
+    def fill_fraction(self):
+        """
+        Share of the cells tiling the data's own extent that are actually present.
+
+        Near 1 for a dense map, and vanishingly small for a bijective re-indexing, where
+        every source pixel gets its own cell at a level far finer than the sampling. That
+        distinction decides how the data can be drawn at all: see :meth:`plot_raster`.
+
+        Examples
+        --------
+        >>> HealpixCells(cell_ids, level=29, values=v).fill_fraction
+
+        """
+        lon_min, lon_max, lat_min, lat_max = self.extent
+        # Solid angle of the lon/lat box, over the mean solid angle of one cell.
+        radians   = np.pi / 180.0
+        solid     = (lon_max - lon_min) * radians * (np.sin(lat_max * radians) - np.sin(lat_min * radians))
+        per_cell  = 4.0 * np.pi / (12.0 * 4.0 ** self.level)
+        covering  = max(solid / per_cell, 1.0)
+        return float(self.cell_ids.size / covering)
+
+    def plot_points(self, ax=None, cmap=None, vmin=None, vmax=None, size=1, **kwargs):
+        """
+        Scatter the cell centres -- the only honest picture of data too sparse to raster or outline.
+
+        A bijective re-indexing puts each source pixel in its own cell at a very fine
+        level, so the cells neither tile anything (nothing to raster) nor have a drawable
+        size (nothing to outline). Their centres, though, are exactly the original sample
+        positions.
+
+        Examples
+        --------
+        >>> HealpixCells(cell_ids, level=29, values=v).plot_points(ax=ax)
+
+        """
+        import healpix_geo.nested
+
+        lon, lat = healpix_geo.nested.healpix_to_lonlat(self.cell_ids, self.level, ellipsoid=self.ellipsoid)
+        lon      = ((np.asarray(lon) + 180.0) % 360.0) - 180.0
+        if ax is None:
+            ax = plt.gca()
+        return ax.scatter(lon, lat, c=self.values, s=size, cmap=cmap or self.cmap,
+                          vmin=vmin, vmax=vmax, **kwargs)
+
     @classmethod
     def from_lonlat(cls, lon, lat, level, ellipsoid='WGS84', **kwargs):
         """
@@ -143,6 +197,9 @@ class HealpixCells:
         >>> HealpixCells(cell_ids, level=7).plot(ax=ax)
 
         """
+        if self.cell_ids.size > OUTLINE_LIMIT:
+            _log.warning(f'{self.cell_ids.size:,} cells is more outlines than a page can show; '
+                         f'plot_raster resamples instead and is what fine levels want')
         corners = self.corners
         # A cell spanning most of the map in longitude has been split by the wrap, not
         # genuinely stretched, so drawing it would streak the figure.
@@ -162,6 +219,80 @@ class HealpixCells:
             collection.set_clim(vmin, vmax)
         ax.add_collection(collection)
         return collection
+
+    def plot_raster(self, ax=None, fig=None, figsize=(8, 8), cmap=None, vmin=None, vmax=None, title=None, colorbar=True, shape=1024, interpolation='nearest', agg='mean', projection=None, view=None, **kwargs):
+        """
+        Resample the cells onto a regular grid and draw them as an image -- the fine-level counterpart of :meth:`plot_map`.
+
+        Where :meth:`plot_map` outlines each cell, this hands the job to ``healpix-plot``,
+        which resamples cell values onto a sampling grid and rasterises. That is the only
+        workable route once there are more cells than a page has pixels: at level 15 a
+        single Sentinel-3 granule is tens of millions of cells, and there is nothing to be
+        gained from drawing each as a quadrilateral a thousandth of a pixel across.
+
+        Parameters
+        ----------
+        shape : int or tuple of int
+            Size of the sampling grid the cells are resampled onto.
+        interpolation : {'nearest', 'bilinear'}
+            How cell values reach the sampling grid. 'nearest' shows the cells as they
+            are; 'bilinear' smooths across them.
+        agg : str
+            How duplicate cell ids are reduced before resampling.
+        projection : str or cartopy CRS, optional
+            Used only when creating a new axes. Defaults to the local-ish 'PlateCarree'
+            rather than the whole-sphere Mollweide that ``healpix-plot`` prefers, since a
+            granule is not a global map.
+
+        Returns
+        -------
+        matplotlib axes
+
+        Raises
+        ------
+        ValueError
+            If the cells carry no values; there is nothing to rasterise.
+
+        Examples
+        --------
+        >>> HealpixCells(cell_ids, level=15, values=radiance).plot_raster()
+
+        """
+        import healpix_plot
+
+        if self.values is None:
+            raise ValueError('plot_raster needs values; use plot_map to draw cell outlines alone')
+        fill = self.fill_fraction
+        if fill < SPARSE_LIMIT:
+            _log.warning(f'only {fill:.2g} of the cells tiling this extent are present at level '
+                         f'{self.level}: resampling will find almost none of them and the image '
+                         f'will come out blank. plot_points scatters the centres instead')
+
+        # Forwarded verbatim to healpix_geo, whose lookup is case-sensitive and rejects
+        # the lower-cased spelling with "Operator 'wgs84' not found".
+        grid = healpix_plot.HealpixGrid(level=self.level, indexing_scheme='nested',
+                                        ellipsoid=self.ellipsoid.upper())
+        if ax is None:
+            import matplotlib.pyplot as plt
+
+            fig = fig if fig is not None else plt.figure(figsize=figsize)
+        _log.info(f'{self.cell_ids.size:,} cells at level {self.level} -> {shape} sampling grid')
+        return healpix_plot.plot(
+            self.cell_ids, np.asarray(self.values),
+            healpix_grid   = grid,
+            sampling_grid  = {'shape': shape},
+            projection     = projection if projection is not None else 'PlateCarree',
+            view           = view,
+            interpolation  = interpolation,
+            agg            = agg,
+            ax             = ax,
+            title          = title,
+            colorbar       = colorbar,
+            cmap           = cmap or self.cmap,
+            vmin           = vmin,
+            vmax           = vmax,
+            **kwargs,
+        )
 
     def plot_map(self, bbox=None, ax=None, fig=None, figsize=(8, 8), cmap=None, vmin=None, vmax=None, title=None, colorbar=True, **kwargs):
         """
@@ -184,9 +315,9 @@ class HealpixCells:
         fig, ax    = BaseMap(bbox=bbox).plot(ax=ax, fig=fig, figsize=figsize)
         collection = self.plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, **kwargs)
         if colorbar and self.values is not None:
-            bar = fig.colorbar(collection, ax=ax, orientation='vertical', shrink=0.7, pad=0.03)
-            bar.set_label(self.label, fontsize=8)
-            bar.ax.tick_params(labelsize=7)
+            from plotea.maps.colorbar import Colorbar
+
+            Colorbar.attach(collection, ax, label=self.label)
         if title is not None:
             ax.set_title(title, fontsize=9)
         return fig, ax

@@ -12,4 +12,5 @@ from plotea.maps.layout import *
 from plotea.maps.raster import *
 from plotea.maps.swath import *
 from plotea.maps.cmaps import *
+from plotea.maps.colorbar import *
 from plotea.maps.dggs import *
