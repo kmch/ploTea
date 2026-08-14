@@ -294,15 +294,21 @@ class HealpixCells:
             **kwargs,
         )
 
-    def plot_map(self, bbox=None, ax=None, fig=None, figsize=(8, 8), cmap=None, vmin=None, vmax=None, title=None, colorbar=True, **kwargs):
+    def plot_map(self, bbox=None, ax=None, fig=None, figsize=(8, 8), cmap=None, vmin=None, vmax=None, title=None, colorbar=True, basemap=None, **kwargs):
         """
         Draw the cells over a basemap with a colorbar, and return ``(fig, ax)``.
 
         The view defaults to the cells' own extent, padded, so they fill the frame.
 
+        Parameters
+        ----------
+        basemap : dict, optional
+            Passed to ``BaseMap``, e.g. ``{'graticule_step': 5}``.
+
         Examples
         --------
         >>> fig, ax = HealpixCells.from_lonlat(lon, lat, level=7).plot_map()
+        >>> fig, ax = HealpixCells(ids, 7).plot_map(basemap={'graticule_step': 5})
 
         """
         from plotea.maps.base import BaseMap
@@ -312,7 +318,7 @@ class HealpixCells:
             pad  = 0.05 * max(lon_max - lon_min, lat_max - lat_min)
             bbox = [lon_min - pad, lat_min - pad, lon_max + pad, lat_max + pad]
 
-        fig, ax    = BaseMap(bbox=bbox).plot(ax=ax, fig=fig, figsize=figsize)
+        fig, ax    = BaseMap(bbox=bbox, **(basemap or {})).plot(ax=ax, fig=fig, figsize=figsize)
         collection = self.plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, **kwargs)
         if colorbar and self.values is not None:
             from plotea.maps.colorbar import Colorbar
