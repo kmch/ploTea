@@ -253,6 +253,7 @@ class Raster:
         stream_mask = (streams.values != 0) & ~np.isnan(streams.values.astype(float))
         masked_data = self.data.where(stream_mask)
         return Raster(data=masked_data)
+    
     def plot(self, ax=None, bbox=None, max_px=2000, hillshade=False, cmap=None, vmin=None, vmax=None, resampling=None, vert_exag=2.5, **kwargs):
         """
         Draw the raster on an axes: its values, or shaded relief made from them.
