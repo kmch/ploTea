@@ -302,8 +302,8 @@ class HealpixCells:
 
         Parameters
         ----------
-        basemap : dict, optional
-            Passed to ``BaseMap``, e.g. ``{'graticule_step': 5}``.
+        basemap : bool or dict or BaseMap, optional
+            The map under the data. A dict overrides single options of the default one, e.g. ``{'graticule_step': 5}``.
 
         Examples
         --------
@@ -318,7 +318,7 @@ class HealpixCells:
             pad  = 0.05 * max(lon_max - lon_min, lat_max - lat_min)
             bbox = [lon_min - pad, lat_min - pad, lon_max + pad, lat_max + pad]
 
-        fig, ax    = BaseMap(bbox=bbox, **(basemap or {})).plot(ax=ax, fig=fig, figsize=figsize)
+        fig, ax    = BaseMap.from_any(basemap, bbox=bbox).plot(ax=ax, fig=fig, figsize=figsize)
         collection = self.plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, **kwargs)
         if colorbar and self.values is not None:
             from plotea.maps.colorbar import Colorbar

@@ -38,7 +38,7 @@ class Colorbar:
     """
 
     @staticmethod
-    def attach(mappable, ax, label='', width='3%', pad=0.02, labelsize=8, ticksize=7, powerlimits=(-3, 4), orientation='vertical'):
+    def attach(mappable, ax, label='', width='3%', pad=0.02, labelsize=8, ticksize=7, powerlimits=(-3, 4), orientation='vertical', rect=None):
         """
         Add a colorbar whose height matches the drawn map exactly, and return it.
 
@@ -56,6 +56,12 @@ class Colorbar:
             Decade range kept in plain digits. Outside it the ticks switch to a shared
             ``x10^n`` offset rather than each carrying an exponent. See
             :meth:`format_ticks`.
+        rect : tuple of float, optional
+            ``(x, y, w, h)`` in axes fractions, for a bar placed exactly. Outside the map
+            when None, which is the default because a bar inside it covers data -- and where
+            the free corner is depends on what the map happens to show. A rect inside the
+            axes, such as ``(0.04, 0.90, 0.30, 0.02)``, is how an overview map carries its
+            bar in a corner instead.
 
         Returns
         -------
@@ -67,22 +73,29 @@ class Colorbar:
         the axes' own coordinate system rather than against the box matplotlib reserved.
         On a fixed-aspect map those two differ, which is exactly why ``shrink=`` never
         quite lands. Anchoring instead means the bar tracks the map through any later
-        change of view or figure size.
+        change of view or figure size. A ``rect`` is anchored the same way, so a bar placed
+        inside the map stays put as well.
 
         Examples
         --------
         >>> Colorbar.attach(image, ax, label='Pixels per cell')
+        >>> Colorbar.attach(image, ax, orientation='horizontal', rect=(0.04, 0.9, 0.3, 0.02))
 
         """
         from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
         horizontal = orientation == 'horizontal'
+        if rect is not None:
+            anchor, size = tuple(rect), ('100%', '100%')
+        else:
+            anchor = (0.0, -pad - 0.05, 1, 0.05) if horizontal else (1 + pad, 0.0, 1, 1)
+            size   = ('100%', width) if horizontal else (width, '100%')
         cax = inset_axes(
             ax,
-            width         = '100%' if horizontal else width,
-            height        = width if horizontal else '100%',
+            width         = size[0],
+            height        = size[1],
             loc           = 'lower left',
-            bbox_to_anchor= (0.0, -pad - 0.05, 1, 0.05) if horizontal else (1 + pad, 0.0, 1, 1),
+            bbox_to_anchor= anchor,
             bbox_transform= ax.transAxes,
             borderpad     = 0,
         )
@@ -108,11 +121,20 @@ class Colorbar:
         switching gives consistency without that cost, and ``useMathText`` renders the
         exponent properly rather than as '1e2'.
 
+        A logarithmic bar is left alone. Its norm already installed a formatter that writes
+        the decades as powers of ten, and a linear formatter over it turns 10^-2, 10^-1, 1
+        into 0.0, 0.1, 1.0 -- three ticks that all read as nothing much. A symlog bar is
+        worse: its linear region around zero prints -0 beside 0.
+
         Examples
         --------
         >>> Colorbar.format_ticks(bar, powerlimits=(-3, 4))
 
         """
+        from matplotlib.colors import LogNorm, SymLogNorm
+
+        if isinstance(getattr(bar, 'norm', None), (LogNorm, SymLogNorm)):
+            return bar
         formatter = ScalarFormatter(useMathText=True)
         formatter.set_powerlimits(powerlimits)
         try:

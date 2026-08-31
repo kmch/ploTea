@@ -177,8 +177,8 @@ class Swath:
 
         Parameters
         ----------
-        basemap : dict, optional
-            Passed to ``BaseMap``, for anything about the map under the data --
+        basemap : bool or dict or BaseMap, optional
+            The map under the data. A dict overrides single options of the default one, for anything about the map under the data --
             ``{'graticule_step': 5}`` for a denser grid, ``{'resolution': '10m'}`` for a
             finer coastline, ``{'ocean': False}``.
 
@@ -195,7 +195,7 @@ class Swath:
             pad  = 0.05 * max(lon_max - lon_min, lat_max - lat_min)
             bbox = [lon_min - pad, lat_min - pad, lon_max + pad, lat_max + pad]
 
-        fig, ax = BaseMap(bbox=bbox, **(basemap or {})).plot(ax=ax, fig=fig, figsize=figsize)
+        fig, ax = BaseMap.from_any(basemap, bbox=bbox).plot(ax=ax, fig=fig, figsize=figsize)
         mesh    = self.plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, max_px=max_px, **kwargs)
         if colorbar:
             from plotea.maps.colorbar import Colorbar

@@ -13,7 +13,7 @@ world scale a one-point coastline reads as a black smear; the publication style
 raises them.
 
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -108,4 +108,10 @@ BASEMAP_STYLE_DEFAULT = BasemapStyle(
 )
 
 
-_STYLES = {'default': BASEMAP_STYLE_DEFAULT}
+# The backdrop for a raster drawn on top: grey land and blue ocean show through wherever the
+# raster has nodata, so what is missing reads as ground rather than as a hole, and the
+# graticule is dark enough to be seen over pale data.
+BASEMAP_STYLE_UNDER_RASTER = replace(BASEMAP_STYLE_DEFAULT, land='#d9d9d9', graticule='black',
+                                     border='white')
+
+_STYLES = {'default': BASEMAP_STYLE_DEFAULT, 'under_raster': BASEMAP_STYLE_UNDER_RASTER}

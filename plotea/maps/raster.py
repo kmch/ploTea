@@ -45,8 +45,11 @@ class Raster:
         stored x100), so the colour scale and colorbar are in real units.
     robust : bool
         Robust (2-98%) colour limits for a continuous cmap.
-    cbar_rect : tuple
-        Inset colorbar position ``(x, y, w, h)`` in axes fraction.
+    cbar_rect : tuple, optional
+        Where the colorbar goes, as ``(x, y, w, h)`` in axes fractions. None puts it
+        outside the map, which is the default because a bar inside covers data. A rect
+        inside the axes, e.g. ``(0.04, 0.90, 0.30, 0.02)``, is the corner-bar overview
+        style, and is drawn horizontally.
 
     Notes
     -----
@@ -62,7 +65,7 @@ class Raster:
 
     """
 
-    def __init__(self, path=None, data=None, cmap='viridis', resampling='average', label='', unit='', scale=1.0, robust=True, cbar_rect=(0.84, 0.52, 0.03, 0.4)):
+    def __init__(self, path=None, data=None, cmap='viridis', resampling='average', label='', unit='', scale=1.0, robust=True, cbar_rect=None):
         self.path       = Path(path).expanduser() if path is not None else None
         self._data      = data
         self.cmap       = cmap
@@ -198,6 +201,35 @@ class Raster:
             raise ValueError('clip needs a file: build the Raster with a path.')
         return RasterClipper.clip(self.path, mode, out_file, **kwargs)
 
+    @staticmethod
+    def graticule_step(extent, lines=5):
+        """
+        A round graticule spacing giving roughly ``lines`` of them across the shorter side.
+
+        A fixed step cannot serve both ends of the range: 10 degrees draws nothing at all on
+        a 0.3-degree region and a solid mesh on a hemisphere. The step is picked from round
+        numbers so the labels stay readable -- 0.5 rather than 0.37.
+
+        Parameters
+        ----------
+        extent : tuple of float
+            ``(xmin, xmax, ymin, ymax)``.
+        lines : int
+            Roughly how many lines to aim for.
+
+        Examples
+        --------
+        >>> Raster.graticule_step((-10, 30, 35, 72))
+        10
+        >>> Raster.graticule_step((6.5, 7.1, 45.1, 45.4))
+        0.1
+
+        """
+        span   = min(extent[1] - extent[0], extent[3] - extent[2])
+        wanted = span / lines
+        rounds = [0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5, 10, 15, 20, 30]
+        return next((step for step in rounds if step >= wanted), rounds[-1])
+
     def get_dx_dy(self, extent, shape):
         """
         Pixel spacing ``(dx, dy)`` in metres for a window of ``shape`` over ``extent``.
@@ -254,12 +286,100 @@ class Raster:
         masked_data = self.data.where(stream_mask)
         return Raster(data=masked_data)
     
-    def plot(self, ax=None, bbox=None, max_px=2000, hillshade=False, cmap=None, vmin=None, vmax=None, resampling=None, vert_exag=2.5, **kwargs):
+    def attach_colorbar(self, image, ax, label=None, scheme=None, **kwargs):
+        """
+        A colorbar beside the map, labelled from the raster and ticked for its colormap.
+
+        The placing is :meth:`plotea.maps.colorbar.Colorbar.attach`, which anchors the bar
+        to the axes' own box rather than to the space matplotlib reserved for it -- on a
+        fixed-aspect map those differ, and the bar otherwise overhangs the map it explains.
+        What is added here is what only the raster knows: its label and unit, and the class
+        names of a discrete colormap.
+
+        Parameters
+        ----------
+        image : matplotlib.image.AxesImage
+        ax : the map axes the bar sits beside
+        label : str, optional
+            ``self.label`` (or the file stem), with ``self.unit`` in parentheses, if None.
+        scheme : DiscreteCmap, optional
+            Ticks the bar at the class values and labels them by name.
+        **kwargs
+            Passed to ``Colorbar.attach`` -- ``orientation``, ``width``, ``pad``.
+
+        Examples
+        --------
+        >>> raster.attach_colorbar(image, image.axes)
+        >>> raster.attach_colorbar(image, ax, orientation='horizontal')
+
+        """
+        from plotea.maps.colorbar import Colorbar
+
+        base    = label if label is not None else (self.label or self.name)
+        # A bar placed inside the map is the corner-bar style, which is horizontal; one
+        # outside it matches every other plotea map, which is vertical.
+        rect    = kwargs.pop('rect', self.cbar_rect)
+        default = 'horizontal' if rect is not None else 'vertical'
+        bar     = Colorbar.attach(image, ax, label=f'{base} ({self.unit})' if self.unit else base,
+                                  rect=rect, orientation=kwargs.pop('orientation', default),
+                                  **kwargs)
+        if scheme is not None:
+            bar.set_ticks(scheme.values)
+            bar.set_ticklabels(scheme.labels)
+            # Class names are words, not numbers, and do not fit side by side on a bar.
+            bar.ax.tick_params(labelsize=5, rotation=0 if bar.orientation == 'vertical' else 90)
+        return bar
+
+    def basemap_options(self, bbox=None) -> dict:
+        """
+        The basemap a raster gets when it asks for one without saying which.
+
+        Everything is derived from the raster rather than assumed: the view is the raster's
+        own extent, and the projection is a Lambert azimuthal equal-area centred on it. A
+        fixed continental projection would draw a raster from another part of the world
+        badly distorted or off the frame, and a fixed graticule step draws either nothing on
+        a small region or a solid mesh on a large one -- left as None, cartopy chooses a step
+        from the extent.
+
+        The coastline is off because a raster covering its own frame already ends where the
+        land does, and a 50 m coastline drawn over it is a coarse line through fine data.
+
+        Parameters
+        ----------
+        bbox : str or list or Bbox, optional
+            The view; the raster's own bounds if None.
+
+        Returned as options rather than as a ``BaseMap`` so that a caller's own
+        ``basemap={...}`` can override single entries without rebuilding the rest.
+
+        Examples
+        --------
+        >>> Raster('dem.tif').basemap_options()
+        >>> BaseMap(**Raster('dem.tif').basemap_options(bbox='eu'))
+
+        """
+        from plotea.maps.crs import laea
+        from plotea.maps.styles import BASEMAP_STYLE_UNDER_RASTER
+        from plotea.maps.vector import Bbox
+
+        view = Bbox.from_any(bbox if bbox is not None else list(self.bounds))
+        # Bbox.extent is (xmin, xmax, ymin, ymax) -- x first, then y, as set_extent wants --
+        # and is None for the whole world, which has no centre to project about.
+        extent  = view.extent
+        options = {'bbox': view, 'style': BASEMAP_STYLE_UNDER_RASTER, 'coastline': False}
+        if extent is None:                       # the whole world has no centre to project about
+            return options
+        options['crs']            = laea(0.5 * (extent[0] + extent[1]), 0.5 * (extent[2] + extent[3]))
+        options['graticule_step'] = self.graticule_step(extent)
+        return options
+
+    def plot(self, ax=None, bbox=None, max_px=2000, hillshade=False, cmap=None, vmin=None, vmax=None, resampling=None, vert_exag=2.5, basemap=False, colorbar=False, label=None, **kwargs):
         """
         Draw the raster on an axes: its values, or shaded relief made from them.
 
         The plotting entry point -- reads a decimated window and hands it to
-        ``RasterPlotter``. ``plot_map`` builds on this, adding a basemap and a colorbar.
+        ``RasterPlotter``, optionally onto a basemap it builds first. ``plot_map`` builds on
+        this, adding a colorbar.
 
         Parameters
         ----------
@@ -282,26 +402,43 @@ class Raster:
             Overrides ``self.resampling`` for the read behind this plot.
         vert_exag : float
             Vertical exaggeration, when ``hillshade``.
+        basemap : bool or BaseMap
+            What to draw the raster on. ``False`` draws the values alone, onto ``ax`` or the
+            current axes. ``True`` builds :meth:`default_basemap` -- the raster's own extent,
+            an equal-area projection centred on it, grey land showing through the nodata.
+            A ``BaseMap`` instance is used as given, which is how anything about the map
+            under the data is changed, and how several panels share one map.
         **kwargs
             Passed to ``RasterPlotter.imshow`` (``alpha``, ``zorder``, ...).
 
         Returns
         -------
         matplotlib.image.AxesImage
+            Whatever was drawn, in every case -- ``im.axes`` and ``im.figure`` give back the
+            axes and the figure, so the return type does not depend on ``basemap``.
 
         Examples
         --------
         >>> Raster(dem_path).plot(ax=ax, bbox='fr', hillshade=True)
-        >>> Raster(lulc_path, cmap=esa_worldcover()).plot(ax=ax, bbox='pl')
+        >>> Raster(dem_path).plot(basemap=True, colorbar=True)
+        >>> Raster(dem_path).plot(basemap={'coastline': True})
 
         """
         from plotea.maps.cmaps import DiscreteCmap
 
         # extent= would otherwise land in **kwargs, leaving bbox None: the whole raster gets
         # read (minutes, for a continental VRT) before imshow rejects the duplicate keyword.
+        from plotea.maps.base import BaseMap
+
         if 'extent' in kwargs:
             raise TypeError('plot() takes bbox=, not extent= -- a region name, a '
                             '[minx, miny, maxx, maxy] box, or a Bbox.')
+        basemap = BaseMap.from_any(basemap, **self.basemap_options(bbox))
+        if basemap is not None:
+            # Draws into ``ax`` when given, so a panel can be built before the raster lands
+            # on it; otherwise it makes the figure and the axes.
+            _, ax = basemap.plot(ax=ax)
+            bbox  = bbox if bbox is not None else basemap.bbox
         data, extent = self.read_window(bbox, max_px, resampling=resampling)
 
         if hillshade:
@@ -318,11 +455,14 @@ class Raster:
             if self.robust and vmin is None and vmax is None and data.count():
                 vmin, vmax = (float(v) for v in np.nanpercentile(data.compressed(), [2, 98]))
             kwargs = {'cmap': cmap, 'vmin': vmin, 'vmax': vmax, **kwargs}
-        return RasterPlotter.imshow(data, extent=extent, ax=ax, **kwargs)
+        image = RasterPlotter.imshow(data, extent=extent, ax=ax, **kwargs)
+        if colorbar:
+            self.attach_colorbar(image, image.axes, label=label, scheme=scheme)
+        return image
 
-    def plot_map(self, bbox='eu', cmap=None, max_px=2000, hillshade=False, vmin=None, vmax=None, resampling=None, label=None, title=None, figsize=(8, 8)):
+    def plot_map(self, bbox=None, cmap=None, max_px=2000, hillshade=False, vmin=None, vmax=None, resampling=None, label=None, title=None, figsize=(8, 8), basemap=None):
         """
-        Plot the raster over ``bbox`` (default Europe) with an inset colorbar (fig01 overview style).
+        Plot the raster over ``bbox`` with a colorbar, and return ``(fig, ax)``.
 
         Reads a decimated window, then draws it over Europe: coloured land, ocean showing
         through nodata, black graticules and white borders. A ``DiscreteCmap`` for ``cmap``
@@ -330,8 +470,8 @@ class Raster:
 
         Parameters
         ----------
-        bbox : str or list or Bbox
-            View extent (default 'eu').
+        bbox : str or list or Bbox, optional
+            View extent; the raster's own bounds if None.
         cmap : str or Colormap or DiscreteCmap, optional
             Override ``self.cmap`` for a one-off.
         max_px : int
@@ -340,6 +480,9 @@ class Raster:
             Colour limits for a continuous cmap (ignored for a ``DiscreteCmap``).
         label, title : str, optional
         figsize : tuple
+        basemap : bool or dict or BaseMap, optional
+            The map under the raster; built from :meth:`basemap_options` if None. See
+            :meth:`BaseMap.from_any`.
 
         Returns
         -------
@@ -350,33 +493,16 @@ class Raster:
         >>> Raster('/data/merit_elv.vrt', cmap='terrain').plot_map()
 
         """
-        from dataclasses import replace
-
-        from plotea import BASEMAP_STYLE_DEFAULT, BaseMap, laea_eu
+        from plotea.maps.base import BaseMap
         from plotea.maps.cmaps import DiscreteCmap
 
-        cmap   = cmap if cmap is not None else self.cmap
-        scheme = cmap if isinstance(cmap, DiscreteCmap) else None
-        style  = replace(BASEMAP_STYLE_DEFAULT, land='#d9d9d9', graticule='black', border='white')
-        # Grey land + blue ocean under the raster (so land outside it still shows), coastline
-        # off -- the raster's own nodata edge is the coast, no coarse line over the data.
-        fig, ax = BaseMap(bbox=bbox, crs=laea_eu(), style=style, coastline=False, graticule_step=10).plot(figsize=figsize)
+        cmap    = cmap if cmap is not None else self.cmap
+        scheme  = cmap if isinstance(cmap, DiscreteCmap) else None
+        basemap = BaseMap.from_any(basemap, **self.basemap_options(bbox))
+        fig, ax = basemap.plot(figsize=figsize)
         im = self.plot(ax=ax, bbox=bbox, max_px=max_px, hillshade=hillshade, cmap=cmap,
                        vmin=vmin, vmax=vmax, resampling=resampling, zorder=0.5)
-        # Horizontal colorbar in the top-left corner -- over the NW-Atlantic / Iceland, off the data.
-        wide = 0.46 if scheme is not None else 0.30            # class rasters get a wider bar for their labels
-        cax = ax.inset_axes([0.04, 0.90, wide, 0.02])
-        cb  = fig.colorbar(im, cax=cax, orientation='horizontal')
-        cb.ax.xaxis.set_ticks_position('bottom')
-        cb.ax.xaxis.set_label_position('top')
-        if scheme is not None:
-            cb.set_ticks(scheme.values)
-            cb.set_ticklabels(scheme.labels)
-            cb.ax.tick_params(labelsize=5, rotation=90)
-        else:
-            cb.ax.tick_params(labelsize=7)
-        base = label if label is not None else (self.label or self.name)
-        cb.set_label(f'{base} ({self.unit})' if self.unit else base, fontsize=8)
+        self.attach_colorbar(im, ax, label=label, scheme=scheme)
         if title is not None:
             ax.set_title(title)
         return fig, ax
@@ -521,6 +647,10 @@ class RasterAnalyzer:
         >>> RasterAnalyzer.describe('/data/dem.tif', full=True)
 
         """
+        import warnings
+
+        import rasterio
+
         rows = []
         for path in cls._paths(rasters):
             with rasterio.open(path) as ds:
@@ -670,20 +800,81 @@ class RasterClipper:
         from shapely.geometry import box as shapely_box
         return gpd.GeoSeries([shapely_box(minx, miny, maxx, maxy)], crs=crs)
     @staticmethod
+    def _output_profile(ds, width, height, transform):
+        """Build a write profile rather than inheriting one.
+
+        ``ds.meta`` carries no compression, so a clip cut from a compressed source
+        came out several times larger than it needed to be; ``ds.profile`` would
+        carry the source's block size instead, which a GeoTIFF rejects once the clip
+        is smaller than one block. So: keep the source's compression (deflate if it
+        had none), and tile only when the result is large enough for tiling to be
+        legal -- blocks must be a multiple of 16 and no larger than the image.
+        """
+        profile = ds.meta.copy()
+        profile.update(
+            driver='GTiff',
+            width=int(width),
+            height=int(height),
+            transform=transform,
+            compress=ds.profile.get('compress', 'deflate'),
+        )
+        if width >= 256 and height >= 256:
+            profile.update(tiled=True, blockxsize=256, blockysize=256)
+        return profile
+
+    @staticmethod
+    def _snap_window(ds, bounds, tol=1e-6):
+        """The window covering *bounds*, grown outward to whole pixels.
+
+        Rounds a pixel offset that sits within *tol* of an integer to that integer
+        before flooring or ceiling it. Without that, a bbox already snapped to the
+        grid comes back from ``from_bounds`` as e.g. 721.000000000001 cells wide,
+        and the ceiling turns a float artefact into a whole extra column. Growing
+        outward (rather than to nearest) also makes the result deterministic: two
+        rasters on one grid clipped to one bbox always come out the same shape.
+        """
+        import math
+        from rasterio.windows import Window, from_bounds
+
+        tidy = lambda value: round(value) if abs(value - round(value)) < tol else value
+        exact   = from_bounds(*bounds, ds.transform)
+        col_off = math.floor(tidy(exact.col_off))
+        row_off = math.floor(tidy(exact.row_off))
+        window  = Window(col_off, row_off,
+                         math.ceil(tidy(exact.col_off + exact.width)) - col_off,
+                         math.ceil(tidy(exact.row_off + exact.height)) - row_off)
+        return window.intersection(Window(0, 0, ds.width, ds.height))
+
+    @staticmethod
+    def _write_window(ds, bounds, out_file):
+        """Read the window covering *bounds* and write it, unchanged.
+
+        The path for any rectangular clip. ``rasterio.mask`` would also work, but it
+        builds a polygon, rasterises it, and sets every cell outside it to the
+        dataset's nodata -- or to 0 when there is none, which on a DEM is sea level.
+        For a rectangle none of that is wanted: the window *is* the answer, and the
+        values inside it are copied through untouched.
+        """
+        import rasterio
+
+        window  = RasterClipper._snap_window(ds, bounds)
+        data    = ds.read(window=window)
+        profile = RasterClipper._output_profile(ds, data.shape[2], data.shape[1],
+                                                ds.window_transform(window))
+        with rasterio.open(out_file, 'w', **profile) as dst:
+            dst.write(data)
+
+    @staticmethod
     def _write_clip(ds, shapes, out_file):
         """Run rasterio.mask and write the clipped raster."""
         import rasterio
         from rasterio.mask import mask
         out_image, out_transform = mask(dataset=ds, shapes=shapes, crop=True)
-        meta = ds.meta.copy()
-        meta.update(
-            driver='GTiff',
-            height=out_image.shape[1],
-            width=out_image.shape[2],
-            transform=out_transform,
-        )
-        with rasterio.open(out_file, 'w', **meta) as dst:
+        profile = RasterClipper._output_profile(ds, out_image.shape[2], out_image.shape[1],
+                                                out_transform)
+        with rasterio.open(out_file, 'w', **profile) as dst:
             dst.write(out_image)
+
     @staticmethod
     def _clip_to_roi(ds, **kwargs):
         """Resolve clip shapes for a named ROI.
@@ -837,13 +1028,22 @@ class RasterClipper:
             raise ValueError(f"Unknown clip mode '{mode}'. Available: {list(RasterClipper.MODES)}")
 
         import rasterio
+        from shapely.geometry import box as shapely_box
         src_path = src.path if isinstance(src, Raster) else Path(src)
         out_file = Path(out_file)
         out_file.parent.mkdir(parents=True, exist_ok=True)
 
         with rasterio.open(src_path) as ds:
             shapes = RasterClipper.MODES[mode].__func__(ds, **kwargs)
-            RasterClipper._write_clip(ds, shapes, out_file)
+            # A rectangle is a window, not a mask. Every mode but 'geometry' produces
+            # one, and so does 'geometry' with geometry_bbox=True; masking it would
+            # rasterise a box to cut out a box, and would write nodata into the edge
+            # cells that a raw (unsnapped) bbox leaves straddling the boundary.
+            union = shapes.union_all() if hasattr(shapes, 'union_all') else shapes.unary_union
+            if union.equals(shapely_box(*union.bounds)):
+                RasterClipper._write_window(ds, union.bounds, out_file)
+            else:
+                RasterClipper._write_clip(ds, shapes, out_file)
 
         _log.info(f"Clipped {src_path} → {out_file}")
         return Raster(path=out_file)
@@ -855,9 +1055,11 @@ class RasterPlotter:
     """
     Draw raster arrays on a map: the array itself, or shaded relief made from it.
 
-    Neither method does any IO -- you pass a 2D array plus its lon/lat ``extent``, so the
-    same pair works for a file read through ``Raster``, a DEM window, or anything else
-    already in memory. Drawn on a ``LonLatAxes``, which assumes lon/lat, so ``imshow``
+    Neither method reads the raster -- you pass a 2D array plus its lon/lat ``extent``, so
+    the same pair works for a file read through ``Raster``, a DEM window, or anything else
+    already in memory. (Drawing onto a basemap is separate, and does touch the disk: cartopy
+    loads its Natural Earth coastlines and borders at draw time, downloading them once if
+    they are not cached.) Drawn on a ``LonLatAxes``, which assumes lon/lat, so ``imshow``
     needs no ``transform``; on a stock projected ``GeoAxes`` pass
     ``transform=ccrs.PlateCarree()``.
 

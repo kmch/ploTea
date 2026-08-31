@@ -127,6 +127,60 @@ class BaseMap:
         self.graticule_inward = graticule_inward
 
 
+    @classmethod
+    def from_any(cls, basemap, **defaults):
+        """
+        Coerce whatever a plotting method was handed into a ``BaseMap``, or into None.
+
+        The counterpart of ``Bbox.from_any`` and ``Crs.from_any`` for the map itself, so
+        that ``basemap=`` means one thing everywhere it appears -- on ``Raster``, ``Swath``
+        and ``HealpixCells`` alike.
+
+        =============  ==========================================================
+        ``basemap``    result
+        =============  ==========================================================
+        ``False``      ``None`` -- draw the data with no map under it
+        ``None``       a ``BaseMap`` built from ``defaults``
+        ``True``       the same
+        ``dict``       built from ``defaults``, with these entries overriding them
+        ``BaseMap``    returned unchanged
+        =============  ==========================================================
+
+        ``None`` and ``False`` differ deliberately: ``None`` means "unspecified, use the
+        default", which is what a ``plot_map`` wants, and ``False`` means "none at all",
+        which is what a bare ``plot`` onto an existing axes wants. A method chooses between
+        them by which one it takes as its own parameter default.
+
+        Parameters
+        ----------
+        basemap : bool or dict or BaseMap or None
+        **defaults
+            Constructor arguments for the map to build when one is not supplied whole. A
+            caller's dict entries win over these.
+
+        Returns
+        -------
+        BaseMap or None
+
+        Examples
+        --------
+        >>> BaseMap.from_any(None, bbox='eu')
+        >>> BaseMap.from_any({'graticule_step': 5}, bbox='eu')
+        >>> BaseMap.from_any(False) is None
+        True
+
+        """
+        if isinstance(basemap, cls):
+            return basemap
+        if basemap is False:
+            return None
+        if isinstance(basemap, dict):
+            return cls(**{**defaults, **basemap})
+        if basemap is None or basemap is True:
+            return cls(**defaults)
+        raise TypeError(f'basemap is a BaseMap, a dict of its options, True/None for the '
+                        f'default one or False for none; got {type(basemap).__name__}')
+
     def plot(self, ax=None, fig=None, spec=None, figsize=None):
         """
         Draw the basemap and return ``(fig, ax)``. Creates a figure and axes if ``ax`` is None.
