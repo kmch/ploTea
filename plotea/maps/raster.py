@@ -397,7 +397,8 @@ class Raster:
         cmap : str or Colormap or DiscreteCmap, optional
             Overrides ``self.cmap``; a ``DiscreteCmap`` draws with its own norm.
         vmin, vmax : float, optional
-            Colour limits; ``self.robust`` picks the 2-98% range when neither is given.
+            Colour limits; ``self.robust`` picks the 2-98% range when neither is given, and
+            neither applies when a ``norm`` is passed, which carries its own limits.
         resampling : str, optional
             Overrides ``self.resampling`` for the read behind this plot.
         vert_exag : float
@@ -451,6 +452,15 @@ class Raster:
         scheme = cmap if isinstance(cmap, DiscreteCmap) else None
         if scheme is not None:
             kwargs = {'cmap': scheme.cmap, 'norm': scheme.norm, **kwargs}
+        elif kwargs.get('norm') is not None:
+            # A norm carries its own limits, and matplotlib refuses both at once. So neither
+            # the robust percentiles nor a vmin/vmax of None may be added underneath it --
+            # passing vmin=None with a norm is what raised "Passing a Normalize instance
+            # simultaneously with vmin/vmax is not supported".
+            if vmin is not None or vmax is not None:
+                raise ValueError(f'vmin/vmax and norm= set the same thing; give the limits to '
+                                 f'the norm instead, e.g. LogNorm(vmin={vmin}, vmax={vmax})')
+            kwargs = {'cmap': cmap, **kwargs}
         else:
             if self.robust and vmin is None and vmax is None and data.count():
                 vmin, vmax = (float(v) for v in np.nanpercentile(data.compressed(), [2, 98]))

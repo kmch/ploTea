@@ -246,6 +246,39 @@ class _MapProjection:
         return LonLatAxes, {'projection': self.crs}
 
 
+def _fix_title_position(ax, y=1.02):
+    """
+    Place the title by hand, because automatic placement lands it at infinity here.
+
+    Matplotlib positions a title just above whatever the x-axis occupies, asking the axis
+    for its tight bounding box. A cartopy ``GeoAxes`` hides the ordinary x-axis, which then
+    reports the *empty* bbox -- ``(inf, inf, -inf, -inf)`` -- so the title, and the two
+    corner titles beside it, are parked at ``y=inf``.
+
+    Two things follow, both of which looked like separate bugs. ``set_title`` appears to do
+    nothing: the text is set, is visible, and is drawn infinitely far above the figure. And
+    the axes' own tight bounding box comes back as ``nan``, which poisons the figure's --
+    so ``bbox_inches='tight'``, which the notebook inline backend uses by default, crops
+    the figure down to whatever else in it is finite. A map with a colorbar then displays
+    as the colorbar alone.
+
+    Giving the title an explicit ``y`` switches automatic placement off, which is enough
+    for both.
+
+    Parameters
+    ----------
+    ax : cartopy GeoAxes
+    y : float
+        Title position in axes fractions.
+
+    Examples
+    --------
+    >>> _fix_title_position(ax).set_title('Aussois')
+
+    """
+    ax.set_title('', y=y)
+    return ax
+
 def new_axes(fig, crs: ccrs.CRS, spec=None, rect=None):
     """
     Add and return a ``LonLatAxes`` for ``crs`` on ``fig``: a subplot, a GridSpec cell, or an explicit rectangle.
@@ -291,10 +324,12 @@ def new_axes(fig, crs: ccrs.CRS, spec=None, rect=None):
     """
     proj = _MapProjection(crs)
     if rect is not None:
-        return fig.add_axes(rect, projection=proj)
-    if spec is None:
-        return fig.add_subplot(1, 1, 1, projection=proj)
-    return fig.add_subplot(spec, projection=proj)
+        ax = fig.add_axes(rect, projection=proj)
+    elif spec is None:
+        ax = fig.add_subplot(1, 1, 1, projection=proj)
+    else:
+        ax = fig.add_subplot(spec, projection=proj)
+    return _fix_title_position(ax)
 
 
 def draw_ocean(ax, resolution: str = '50m', color: str = '#cfe1f2', zorder: float = 1.0) -> None:

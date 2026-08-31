@@ -76,12 +76,17 @@ class Colorbar:
         change of view or figure size. A ``rect`` is anchored the same way, so a bar placed
         inside the map stays put as well.
 
+        The map is left as the current axes, not the bar. Creating an inset makes it
+        current, which would silently redirect the next pyplot call onto a strip a few
+        pixels wide.
+
         Examples
         --------
         >>> Colorbar.attach(image, ax, label='Pixels per cell')
         >>> Colorbar.attach(image, ax, orientation='horizontal', rect=(0.04, 0.9, 0.3, 0.02))
 
         """
+        import matplotlib.pyplot as plt
         from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
         horizontal = orientation == 'horizontal'
@@ -99,6 +104,11 @@ class Colorbar:
             bbox_transform= ax.transAxes,
             borderpad     = 0,
         )
+        # inset_axes leaves the bar as the current axes, so a later plt.title, plt.scatter
+        # or a second plot() with ax=None would land on the colorbar instead of the map.
+        # The caller was drawing on ``ax``; leave it that way.
+        if ax.figure is plt.gcf():
+            plt.sca(ax)
         bar = ax.figure.colorbar(mappable, cax=cax, orientation=orientation)
         bar.set_label(label, fontsize=labelsize)
         bar.ax.tick_params(labelsize=ticksize)
