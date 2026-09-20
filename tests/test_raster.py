@@ -87,10 +87,24 @@ def test_raster_plot_hillshade_switches_the_scale():
     from plotea.maps.raster import Raster
 
     class FakeRaster(Raster):
-        """A Raster whose read_window() returns a synthetic DEM, so the test needs no file."""
+        """
+        A Raster whose data and bounds are synthetic, so the test needs no file.
+
+        ``bounds`` has to be stubbed as well as ``read_window``: ``plot`` asks for
+        ``basemap_options`` before it reads any pixels, and that needs the raster's extent,
+        which a real Raster gets by opening the file. Stubbing only ``read_window`` left the
+        file to be opened for its georeferencing and the test failed on a missing path.
+
+        """
 
         def read_window(self, bbox=None, max_px=2000, resampling=None):
             return np.ma.array(_dem()), (-4.762, 9.556, 41.384, 51.097)
+
+        @property
+        def bounds(self):
+            # (xmin, ymin, xmax, ymax), as rioxarray's rio.bounds() returns -- not the
+            # (xmin, xmax, ymin, ymax) that read_window hands back for imshow.
+            return (-4.762, 41.384, 9.556, 51.097)
 
     _, ax  = BaseMap(bbox='fr', crs='laea_eu').plot()
     values = FakeRaster('/nonexistent.tif', cmap='terrain', robust=False).plot(ax=ax, vmin=0, vmax=100)
