@@ -1,5 +1,5 @@
 """
-plotea: publication-quality scientific figures -- maps, graphs, time series, volumes.
+plotea: publication-quality maps -- rasters, vectors, swaths and discrete global grids.
 
 Notes
 -----

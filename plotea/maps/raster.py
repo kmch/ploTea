@@ -77,7 +77,15 @@ class Raster:
         # misreport units: a band written as scaled integers declares its scale, and a reader
         # that ignores it shows values a hundred or ten thousand times too large while looking
         # entirely plausible. An explicit scale still wins, for a file that declares none.
-        self.scale      = self.declared_scale() if scale is None else scale
+        from_file       = scale is None
+        self.scale      = self.declared_scale() if from_file else scale
+        # Said out loud whenever it is not 1, and only then: a scale is the difference between
+        # metres and centimetres, and a reader who does not know one is being applied has no
+        # way to tell a plausible number from a wrong one.
+        if self.scale != 1.0:
+            source = 'declared on the band' if from_file else 'given by the caller'
+            _log.info(f'{self.name}: scale {self.scale:g} {source}; values are read as '
+                      f'raw x {self.scale:g}')
         self.robust     = robust
         self.cbar_rect  = cbar_rect
 

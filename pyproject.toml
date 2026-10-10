@@ -16,17 +16,22 @@ authors = [{name = "Kajetan Chrapkiewicz"}]
 dependencies = [
     "matplotlib>=3.9,<4",
     "numpy",
+    "pandas",
     "cartopy>=0.23",
     "geopandas>=1.0",
     "xarray",
+    "rioxarray",
+    "rasterio",
     "shapely",
     "pyproj",
 ]
 
 [project.optional-dependencies]
-raster = ["rioxarray"]
+# The HEALPix layer is the one part with dependencies of its own, and it is the one part a
+# map-only install has no use for.
+dggs = ["healpix-geo", "healpix-plot"]
 dev = ["pytest", "pytest-cov"]
-docs = ["sphinx", "sphinx-rtd-theme"]
+docs = ["sphinx", "myst-parser", "pydata-sphinx-theme", "sphinx-design", "myst-nb"]
 
 [project.urls]
 Homepage = "https://github.com/kmch/plotea"
