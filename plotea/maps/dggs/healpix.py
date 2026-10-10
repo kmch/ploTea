@@ -220,7 +220,7 @@ class HealpixCells:
         ax.add_collection(collection)
         return collection
 
-    def plot_raster(self, ax=None, fig=None, figsize=(8, 8), cmap=None, vmin=None, vmax=None, title=None, colorbar=True, shape=1024, interpolation='nearest', agg='mean', projection=None, view=None, **kwargs):
+    def plot_raster(self, ax=None, fig=None, figsize=(8, 8), cmap=None, vmin=None, vmax=None, title=None, cbar=True, shape=1024, interpolation='nearest', agg='mean', projection=None, view=None, **kwargs):
         """
         Resample the cells onto a regular grid and draw them as an image -- the fine-level counterpart of :meth:`plot_map`.
 
@@ -287,14 +287,14 @@ class HealpixCells:
             agg            = agg,
             ax             = ax,
             title          = title,
-            colorbar       = colorbar,
+            cbar           = cbar,
             cmap           = cmap or self.cmap,
             vmin           = vmin,
             vmax           = vmax,
             **kwargs,
         )
 
-    def plot_map(self, bbox=None, ax=None, fig=None, figsize=(8, 8), cmap=None, vmin=None, vmax=None, title=None, colorbar=True, basemap=None, **kwargs):
+    def plot_map(self, bbox=None, ax=None, fig=None, figsize=(8, 8), cmap=None, vmin=None, vmax=None, title=None, cbar=True, basemap=None, **kwargs):
         """
         Draw the cells over a basemap with a colorbar, and return ``(fig, ax)``.
 
@@ -320,7 +320,7 @@ class HealpixCells:
 
         fig, ax    = BaseMap.from_any(basemap, bbox=bbox).plot(ax=ax, fig=fig, figsize=figsize)
         collection = self.plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, **kwargs)
-        if colorbar and self.values is not None:
+        if cbar and self.values is not None:
             from plotea.maps.colorbar import Colorbar
 
             Colorbar.attach(collection, ax, label=self.label)

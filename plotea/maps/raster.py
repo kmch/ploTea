@@ -40,9 +40,10 @@ class Raster:
         Colorbar label (defaults to the file stem); ``unit`` is appended as ``(unit)``.
     unit : str
         Physical unit of the (scaled) values, shown on the colorbar as ``label (unit)``.
-    scale : float
+    scale : float, optional
         Multiply read values by this to reach physical ``unit`` (e.g. ``0.01`` for a raster
-        stored x100), so the colour scale and colorbar are in real units.
+        stored x100), so the colour scale and colorbar are in real units. ``None``, the
+        default, takes the scale the file declares on its band, falling back to 1.0.
     robust : bool
         Robust (2-98%) colour limits for a continuous cmap.
     cbar_rect : tuple, optional
@@ -65,16 +66,44 @@ class Raster:
 
     """
 
-    def __init__(self, path=None, data=None, cmap='viridis', resampling='average', label='', unit='', scale=1.0, robust=True, cbar_rect=None):
+    def __init__(self, path=None, data=None, cmap='viridis', resampling='average', label='', unit='', scale=None, robust=True, cbar_rect=None):
         self.path       = Path(path).expanduser() if path is not None else None
         self._data      = data
         self.cmap       = cmap
         self.resampling = resampling
         self.label      = label
         self.unit       = unit
-        self.scale      = scale
+        # None means "whatever the file says", which is the only default that cannot silently
+        # misreport units: a band written as scaled integers declares its scale, and a reader
+        # that ignores it shows values a hundred or ten thousand times too large while looking
+        # entirely plausible. An explicit scale still wins, for a file that declares none.
+        self.scale      = self.declared_scale() if scale is None else scale
         self.robust     = robust
         self.cbar_rect  = cbar_rect
+
+    def declared_scale(self) -> float:
+        """
+        The scale the file records on its first band, or 1.0 where it records none.
+
+        GDAL's convention is ``physical = raw * scale``, so a proportion stored as 0-10000
+        carries ``scale = 1e-4``. Reading it from the band rather than being told means a
+        scaled raster plots and analyses in physical units by default.
+
+        Examples
+        --------
+        >>> Raster('upstream_proportion_class10.tif').declared_scale()
+        0.0001
+
+        """
+        if self.path is None:
+            return 1.0
+        try:
+            import rasterio
+            with rasterio.open(self.path) as src:
+                declared = src.scales[0]
+        except Exception:                      # not a raster yet, or a driver without scales
+            return 1.0
+        return float(declared) if declared not in (None, 0) else 1.0
 
     def __repr__(self):
         return f'Raster(path={self.path}, data={"loaded" if self._data is not None else "not loaded"})'
@@ -286,7 +315,7 @@ class Raster:
         masked_data = self.data.where(stream_mask)
         return Raster(data=masked_data)
     
-    def attach_colorbar(self, image, ax, label=None, scheme=None, **kwargs):
+    def attach_cbar(self, image, ax, label=None, scheme=None, **kwargs):
         """
         A colorbar beside the map, labelled from the raster and ticked for its colormap.
 
@@ -309,8 +338,8 @@ class Raster:
 
         Examples
         --------
-        >>> raster.attach_colorbar(image, image.axes)
-        >>> raster.attach_colorbar(image, ax, orientation='horizontal')
+        >>> raster.attach_cbar(image, image.axes)
+        >>> raster.attach_cbar(image, ax, orientation='horizontal')
 
         """
         from plotea.maps.colorbar import Colorbar
@@ -373,7 +402,7 @@ class Raster:
         options['graticule_step'] = self.graticule_step(extent)
         return options
 
-    def plot(self, ax=None, bbox=None, max_px=2000, hillshade=False, cmap=None, vmin=None, vmax=None, resampling=None, vert_exag=2.5, basemap=False, colorbar=False, label=None, **kwargs):
+    def plot(self, ax=None, bbox=None, max_px=2000, hillshade=False, cmap=None, vmin=None, vmax=None, resampling=None, vert_exag=2.5, basemap=False, cbar=False, label=None, **kwargs):
         """
         Draw the raster on an axes: its values, or shaded relief made from them.
 
@@ -421,7 +450,7 @@ class Raster:
         Examples
         --------
         >>> Raster(dem_path).plot(ax=ax, bbox='fr', hillshade=True)
-        >>> Raster(dem_path).plot(basemap=True, colorbar=True)
+        >>> Raster(dem_path).plot(basemap=True, cbar=True)
         >>> Raster(dem_path).plot(basemap={'coastline': True})
 
         """
@@ -466,8 +495,8 @@ class Raster:
                 vmin, vmax = (float(v) for v in np.nanpercentile(data.compressed(), [2, 98]))
             kwargs = {'cmap': cmap, 'vmin': vmin, 'vmax': vmax, **kwargs}
         image = RasterPlotter.imshow(data, extent=extent, ax=ax, **kwargs)
-        if colorbar:
-            self.attach_colorbar(image, image.axes, label=label, scheme=scheme)
+        if cbar:
+            self.attach_cbar(image, image.axes, label=label, scheme=scheme)
         return image
 
     def plot_map(self, bbox=None, cmap=None, max_px=2000, hillshade=False, vmin=None, vmax=None, resampling=None, label=None, title=None, figsize=(8, 8), basemap=None):
@@ -512,7 +541,7 @@ class Raster:
         fig, ax = basemap.plot(figsize=figsize)
         im = self.plot(ax=ax, bbox=bbox, max_px=max_px, hillshade=hillshade, cmap=cmap,
                        vmin=vmin, vmax=vmax, resampling=resampling, zorder=0.5)
-        self.attach_colorbar(im, ax, label=label, scheme=scheme)
+        self.attach_cbar(im, ax, label=label, scheme=scheme)
         if title is not None:
             ax.set_title(title)
         return fig, ax

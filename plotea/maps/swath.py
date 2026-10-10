@@ -168,7 +168,7 @@ class Swath:
         kwargs = {'cmap': cmap, 'vmin': vmin, 'vmax': vmax, 'shading': 'auto', **kwargs}
         return SwathPlotter.pcolormesh(swath.values, swath.lon, swath.lat, ax=ax, **kwargs)
 
-    def plot_map(self, bbox=None, ax=None, fig=None, figsize=(8, 8), cmap=None, vmin=None, vmax=None, max_px=400000, title=None, colorbar=True, basemap=None, **kwargs):
+    def plot_map(self, bbox=None, ax=None, fig=None, figsize=(8, 8), cmap=None, vmin=None, vmax=None, max_px=400000, title=None, cbar=True, basemap=None, **kwargs):
         """
         Draw the swath over a basemap with a colorbar, and return ``(fig, ax)``.
 
@@ -197,7 +197,7 @@ class Swath:
 
         fig, ax = BaseMap.from_any(basemap, bbox=bbox).plot(ax=ax, fig=fig, figsize=figsize)
         mesh    = self.plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, max_px=max_px, **kwargs)
-        if colorbar:
+        if cbar:
             from plotea.maps.colorbar import Colorbar
 
             base = f'{self.label} ({self.unit})' if self.unit else self.label
