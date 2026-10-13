@@ -169,12 +169,24 @@ class HealpixCells:
         The coverage picture: hand it a swath's geolocation and it shows which cells the
         swath touches and how densely.
 
+        Raises
+        ------
+        TypeError
+            If ``values`` is given. This constructor's values *are* the point counts, so a
+            caller's own would have to replace them, which is what the plain constructor is
+            for.
+
         Examples
         --------
         >>> HealpixCells.from_lonlat(lon, lat, level=7, label='Pixels per cell')
 
         """
         import healpix_geo.nested
+
+        if 'values' in kwargs:
+            raise TypeError('from_lonlat values each cell by how many points fell in it, so '
+                            'it cannot also take values=. For your own values, find the cell '
+                            'ids first and use HealpixCells(ids, level, values=...).')
 
         lon   = np.asarray(lon).ravel()
         lat   = np.asarray(lat).ravel()
@@ -246,7 +258,10 @@ class HealpixCells:
 
         Returns
         -------
-        matplotlib axes
+        matplotlib.image.AxesImage
+            The resampled image, as :meth:`plot` returns its collection. Its ``.axes``
+            gives the axes it was drawn on. ``healpix-plot`` annotates its own ``plot`` as
+            returning an axes and returns an image, so measured here rather than believed.
 
         Raises
         ------
@@ -287,7 +302,9 @@ class HealpixCells:
             agg            = agg,
             ax             = ax,
             title          = title,
-            cbar           = cbar,
+            # healpix-plot spells it colorbar; plotea says cbar throughout, so the two
+            # names meet here rather than in this package's own signature.
+            colorbar       = cbar,
             cmap           = cmap or self.cmap,
             vmin           = vmin,
             vmax           = vmax,
