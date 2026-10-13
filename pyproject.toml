@@ -38,7 +38,7 @@ Homepage = "https://github.com/kmch/plotea"
 
 [tool.setuptools.packages.find]
 include = ["plotea*"]
-exclude = ["plotea.legacy*"]
+
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

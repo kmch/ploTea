@@ -601,6 +601,24 @@ class Bbox:
         if geometry is not None:
             self._build(geometry, target_crs=target_crs, pad=pad)
 
+    def __repr__(self):
+        """
+        The box's identity is the ground it covers, so show that rather than an address.
+
+        Examples
+        --------
+        >>> Bbox.from_any('eu')
+        Bbox(west=-10.00, east=30.00, south=35.00, north=72.00)
+
+        """
+        if self.is_world:
+            return 'Bbox(world)'
+        if self.bbox is None:
+            return 'Bbox(empty)'
+        west, east, south, north = self.extent
+        return (f'Bbox(west={west:.2f}, east={east:.2f}, '
+                f'south={south:.2f}, north={north:.2f})')
+
     @classmethod
     def from_any(cls, bbox) -> 'Bbox':
         """

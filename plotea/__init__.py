@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from plotea.config import PATH, Paths
 from plotea.log import *
 from plotea.generic.scales import *
 from plotea.generic.labels import *
@@ -33,6 +34,7 @@ from plotea.maps.styles import *
 from plotea.maps.carto import *
 from plotea.maps.base import *
 from plotea.maps.layout import *
+from plotea.maps.cmaps import *
 from plotea.maps.raster import *
 from plotea.maps.colorbar import *
 from plotea.maps.swath import *
