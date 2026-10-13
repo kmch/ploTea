@@ -177,3 +177,63 @@ def test_blend_mode_keeps_the_grey_hillshade_path_intact(tmp_path):
     blended = raster.plot(ax=ax, hillshade=True, blend_mode='hsv')
     assert blended.get_array().ndim == 3
     assert blended.get_array().shape[2] == 4
+
+
+def test_details_reports_every_field_exactly(tmp_path):
+    """
+    One labelled column per raster, with the true value range rather than an approximate one.
+
+    The exactness is the point: an approximate maximum read off the overviews is wrong by
+    whatever the averaging removed, and a range you cannot trust is worse than none when the
+    reason to look is to check the file is what you were told.
+
+    Examples
+    --------
+    >>> pytest tests/test_raster.py -k details_reports
+
+    """
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from plotea.maps.raster import Raster
+
+    values = np.arange(400.0).reshape(20, 20)
+    path   = tmp_path / 'sub' / 'ramp.tif'
+    path.parent.mkdir()
+    with rasterio.open(path, 'w', driver='GTiff', height=20, width=20, count=1,
+                       dtype='float32', crs='EPSG:4326', nodata=-9999.0,
+                       transform=from_origin(9.0, 40.0, 0.01, 0.01), tiled=True,
+                       blockxsize=16, blockysize=16, compress='deflate') as dst:
+        dst.write(values.astype('float32'), 1)
+
+    details = Raster(path).details
+    assert details['name']        == 'ramp.tif'
+    assert details['subdir']      == 'sub'
+    assert details['path']        == str(path)
+    assert details['width']       == 20
+    assert details['height']      == 20
+    assert details['n_bands']     == 1
+    assert details['dtype']       == 'float32'
+    assert details['nodata']      == -9999.0
+    assert details['driver']      == 'GTiff'
+    assert details['compression'] == 'deflate'
+    assert details['block_x']     == 16
+    assert details['crs']         == 'EPSG:4326'
+    assert details['val_min']     == 0.0
+    assert details['val_max']     == 399.0
+    assert details['x_min']       == pytest.approx(9.0)
+    assert details['y_max']       == pytest.approx(40.0)
+
+def test_details_refuses_a_raster_with_no_file():
+    """
+    Size and compression are facts about a file, so an in-memory raster cannot report them.
+
+    Examples
+    --------
+    >>> pytest tests/test_raster.py -k details_refuses
+
+    """
+    from plotea.maps.raster import Raster
+
+    with pytest.raises(ValueError, match='needs a file on disk'):
+        Raster(data=np.ones((3, 3))).details

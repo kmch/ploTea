@@ -33,7 +33,7 @@ describes intentions.
 | thinnest lines no smaller than one point | the same file sets `axes.linewidth: 1` and `lines.linewidth: 1`, against matplotlib's defaults of 0.8 and 1.5 |
 | lower-case bold **a**, **b** panel labels | {func}`~plotea.generic.labels.panel_label`, bold by default |
 | scale bars rather than magnification factors, length defined in the legend | {func}`~plotea.generic.scalebar.scalebar` draws a segmented bar in projected coordinates and leaves the number to the caption |
-| white background, no spurious decoration | the basemap styles in {mod}`plotea.maps.styles` fill land and sea flat and draw no frame furniture |
+| white background, no spurious decoration | the basemap styles in {mod}`plotea.maps.styles` fill land and sea flat, with no frame or shadow |
 | labelling readable and consistent across panels | {meth}`~plotea.maps.colorbar.Colorbar.format_ticks` fixes the formatter once, so one panel cannot read `0.05` while its neighbour reads `5e-02` |
 | one panel unless the parts are logically connected, all reduced by the same amount | {mod}`plotea.maps.layout` aligns equal-aspect map axes so a figure scales as a whole |
 

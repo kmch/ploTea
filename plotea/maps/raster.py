@@ -161,6 +161,57 @@ class Raster:
         self._data = value
 
     @property
+    def details(self) -> pd.Series:
+        """
+        Everything ``gdalinfo`` would tell you about this file, as one labelled column.
+
+        The same fields :meth:`RasterAnalyzer.describe` tabulates for many rasters, for one
+        raster and printed down the page instead of across it -- twenty-two values in a row
+        wrap into something unreadable, whereas a column can be read by eye and a single
+        field picked out with ``r.details['block_x']``.
+
+        What it is for: checking a file is what you were told it is, before it costs you
+        hours. Whether the nodata is declared, whether the blocks are tiled or whole rows,
+        whether the values are the units you expected, whether the compression survived a
+        copy. ``size_gb`` is the file on disk, not the array in memory.
+
+        Reading the statistics opens the band, so this is slower than the other properties.
+        They are **exact**, not read off the overviews: an approximate maximum is wrong by
+        whatever the overview averaged away -- 1766 against a true 1819 on the shipped DEM --
+        and a value range you cannot trust is worse than none when the point is to check the
+        file is what you were told. For many rasters, or a continental mosaic where an exact
+        pass is expensive, :meth:`RasterAnalyzer.describe` takes ``approx=True``.
+
+        Returns
+        -------
+        pandas.Series
+            Indexed by field name: ``name``, ``path``, ``subdir``, ``size_gb``, ``driver``,
+            ``width``, ``height``, ``n_bands``, ``dtype``, ``nodata``, ``val_min``,
+            ``val_max``, ``val_mean``, ``compression``, ``block_x``, ``block_y``, ``crs``,
+            ``res_x``, ``res_y``, ``x_min``, ``y_min``, ``x_max``, ``y_max``.
+
+        Examples
+        --------
+        >>> Raster('sardinia_elv.tif').details
+        >>> Raster('sardinia_elv.tif').details['nodata']
+
+        """
+        if self.path is None:
+            raise ValueError('details needs a file on disk; this Raster was built from an '
+                             'array and has no path, size or compression to report')
+        row = RasterAnalyzer.describe([self.path], stats=True, approx=False,
+                                      full=True).iloc[0]
+        # describe names it 'dir' because a table of many rasters is grouped by it; for one
+        # raster the useful pair is the full path and the directory it sits in.
+        row = row.rename({'dir': 'subdir'})
+        row['path'] = str(self.path)
+        order = ['name', 'path', 'subdir', 'size_gb', 'driver', 'width', 'height', 'n_bands',
+                 'dtype', 'nodata', 'val_min', 'val_max', 'val_mean', 'compression',
+                 'block_x', 'block_y', 'crs', 'res_x', 'res_y', 'x_min', 'y_min', 'x_max',
+                 'y_max']
+        return row.reindex(order)
+
+    @property
     def name(self) -> str:
         """
         The file stem -- the default colorbar label and plot title.
@@ -736,7 +787,7 @@ class RasterAnalyzer:
                         row['val_min'], row['val_max'], row['val_mean'] = st.min, st.max, round(st.mean, 4)
                     except Exception as exc:                       # unreadable / all-nodata band
                         row['val_min'] = row['val_max'] = row['val_mean'] = float('nan')
-                        _log.warning('stats failed for %s: %s', path.name, exc)
+                        _log.warning(f'no statistics for {path.name}, so its value range is unknown: {exc}')
                 if full:
                     block_y, block_x = ds.block_shapes[0]          # (rows, cols) per gdalinfo Block=WxH
                     res_x, res_y = ds.res
@@ -748,7 +799,7 @@ class RasterAnalyzer:
                                res_x=res_x, res_y=res_y,
                                x_min=b.left, y_min=b.bottom, x_max=b.right, y_max=b.top)
             rows.append(row)
-        _log.info('described %d rasters', len(rows))
+        _log.info(f'Described {len(rows)} raster(s)')
         df = pd.DataFrame(rows)
         if full:
             df = df[[c for c in cls.FULL_COLUMNS if c in df.columns]]
