@@ -8,6 +8,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import rioxarray                      # noqa: F401 -- registers the .rio accessor
+import xarray as xr
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LightSource, Normalize
 
@@ -16,6 +18,90 @@ from plotea.log import get_logger
 __all__ = ['Raster', 'RasterAnalyzer', 'RasterClipper', 'RasterPlotter']
 
 _log = get_logger(__name__)
+
+@xr.register_dataarray_accessor('plotea')
+class PloteaAccessor:
+    """
+    The two things a map wants from a read, on the array itself: ``extent`` and ``to_masked``.
+
+    Registered on every ``xarray.DataArray``, so a window from :meth:`Raster.read_window`
+    answers ``window.plotea.extent`` without anything having to be carried alongside it.
+
+    It exists because the alternatives are both wrong. Computing the extent from the
+    coordinates gives cell *centres*, which are half a pixel inside the edges ``imshow``
+    wants -- on the shipped DEM, 8.100417 against a true 8.1 -- and that error is silent.
+    Returning the extent beside the array as a second value gives the caller two look-alike
+    four-float tuples in opposite orders, which is a bug this package has already shipped.
+
+    Examples
+    --------
+    >>> window = Raster('dem.tif').read_window(max_px=800)
+    >>> plt.imshow(window.plotea.to_masked(), extent=window.plotea.extent)
+
+    """
+
+    def __init__(self, dataarray):
+        self._da = dataarray
+
+    @property
+    def bbox(self):
+        """
+        The footprint as a ``Bbox``, so one read's extent can be another call's view.
+
+        Examples
+        --------
+        >>> other.read_window(bbox=window.plotea.bbox)
+
+        """
+        from plotea.maps.vector import Bbox
+
+        left, bottom, right, top = self._da.rio.bounds()
+        return Bbox.from_any([left, bottom, right, top])
+
+    @property
+    def extent(self):
+        """
+        ``(xmin, xmax, ymin, ymax)`` at the cell *edges*, which is what ``imshow`` takes.
+
+        Note the order. A ``Bbox`` is ``(minx, miny, maxx, maxy)``; this is x then y, because
+        that is what matplotlib wants. Use :attr:`bbox` when a region is what you mean.
+
+        Examples
+        --------
+        >>> window.plotea.extent
+
+        """
+        left, bottom, right, top = self._da.rio.bounds()
+        return (left, right, bottom, top)
+
+    def to_masked(self) -> np.ma.MaskedArray:
+        """
+        The values as a masked array, with the declared nodata masked out.
+
+        Two kinds of absence, and neither test catches the other: a sentinel is found by
+        comparison, a NaN is not, because NaN equals nothing including itself.
+
+        Examples
+        --------
+        >>> window.plotea.to_masked().count()
+
+        """
+        values = self._da.values
+        nodata = self._da.rio.nodata
+        if nodata is None:
+            return np.ma.masked_invalid(values) if np.issubdtype(values.dtype, np.floating) \
+                else np.ma.asarray(values)
+        # np.isnan rather than `isinstance(nodata, float) and ...`: rio.nodata hands back a
+        # numpy float, which is not a Python float, and the isinstance test silently fell
+        # through to the comparison below -- which cannot match a NaN, so nothing masked.
+        try:
+            is_nan = bool(np.isnan(nodata))
+        except (TypeError, ValueError):
+            is_nan = False
+        if is_nan:
+            return np.ma.masked_invalid(values)
+        return np.ma.masked_equal(values, nodata)
+
 
 class Raster:
     """
@@ -570,7 +656,8 @@ class Raster:
             # on it; otherwise it makes the figure and the axes.
             _, ax = basemap.plot(ax=ax)
             bbox  = bbox if bbox is not None else basemap.bbox
-        data, extent = self.read_window(bbox, max_px, every=every, resampling=resampling)
+        window = self.read_window(bbox, max_px, every=every, resampling=resampling)
+        data, extent = window.plotea.to_masked(), window.plotea.extent
 
         if hillshade or blend_mode is not None:
             dx, dy = self.get_dx_dy(extent, data.shape)
@@ -674,9 +761,9 @@ class Raster:
         ----------
         bbox : str or list or Bbox, optional
             The window: a region name, a ``[minx, miny, maxx, maxy]`` box, or a ``Bbox``.
-            The whole raster if None. Note this is a bbox, not an extent -- pass
-            ``Bbox.from_any(...)`` rather than someone's ``.extent`` tuple, whose order is
-            ``(xmin, xmax, ymin, ymax)``.
+            The whole raster if None. A region, not an extent: ``window.plotea.bbox``
+            hands one read's footprint to another, where ``window.plotea.extent`` would be
+            the same four numbers in matplotlib's order.
         max_px : int
             Target size of the longer output side. Ignored when ``every`` is given.
         every : int, optional
@@ -696,17 +783,28 @@ class Raster:
 
         Returns
         -------
-        data : numpy.ma.MaskedArray
-        extent : tuple
-            The extent actually read (echoed for plotting).
+        xarray.DataArray
+            The window, with the coordinates, CRS, transform and nodata of what was actually
+            read -- which is not what was asked for, since a decimated read lands on cell
+            boundaries. Everything a caller needs travels with the values, rather than
+            beside them: ``window.plotea.extent`` for ``imshow``, ``window.plotea.bbox`` to
+            feed another read, ``window.plotea.to_masked()`` for numpy.
+
+            The file's dtype is kept, so an Int16 elevation comes back Int16 with its
+            sentinel declared rather than promoted to float with NaN. A ``scale`` on the
+            ``Raster`` is the exception: physical units are floats, and the nodata is scaled
+            with them.
 
         Examples
         --------
-        >>> data, extent = Raster('/data/merit_twi.vrt').read_window('eu', max_px=800)
+        >>> window = Raster('/data/merit_twi.vrt').read_window('eu', max_px=800)
+        >>> window.plotea.extent
+        >>> window.plotea.to_masked().count()
 
         """
         import rasterio
         from rasterio.enums import Resampling
+        from rasterio.transform import Affine
         from rasterio.windows import from_bounds
 
         from plotea.maps.vector import Bbox
@@ -733,12 +831,32 @@ class Raster:
                 scale = min(1.0, max_px / max(win.width, win.height))
                 out   = (max(1, round(win.height * scale)), max(1, round(win.width * scale)))
                 how   = resampling if resampling is not None else self.resampling
-            data = ds.read(1, window=win, out_shape=out, resampling=Resampling[how], masked=True, boundless=True)
-            if ds.nodata is not None:                               # external .ovr overviews may drop the nodata -> mask it explicitly
-                data = np.ma.masked_equal(data, ds.nodata)
-        if self.scale != 1.0:                                       # -> physical units for the colour scale
-            data = data * self.scale
-        return data, extent
+            # No masked=True: a masked read of an integer band comes back float with NaN, and
+            # this package cares which type a raster is. The nodata is declared on the
+            # result instead, and ``window.plotea.to_masked()`` applies it when wanted.
+            data = ds.read(1, window=win, out_shape=out, resampling=Resampling[how],
+                           boundless=True)
+            # The transform of what was actually read, which is not the file's: the window
+            # moved the origin and the decimation stretched the pixels.
+            transform = ds.window_transform(win) * Affine.scale(win.width / out[1],
+                                                                win.height / out[0])
+            nodata, crs = ds.nodata, ds.crs
+
+        if self.scale != 1.0:                                       # -> physical units
+            data   = data * self.scale
+            nodata = None if nodata is None else nodata * self.scale
+        # Cell centres, because that is what a coordinate is; the edges come back from
+        # ``rio.bounds()``, which is why the extent is read off that and never off these.
+        rows, cols = np.arange(out[0]), np.arange(out[1])
+        window = xr.DataArray(data, dims=('y', 'x'), name=self.name,
+                              coords={'y': transform.f + (rows + 0.5) * transform.e,
+                                      'x': transform.c + (cols + 0.5) * transform.a})
+        window.rio.write_transform(transform, inplace=True)
+        if crs is not None:
+            window.rio.write_crs(crs, inplace=True)
+        if nodata is not None:
+            window.rio.write_nodata(nodata, inplace=True)
+        return window
 
     def reproject(self, dst_crs: int, out_file=None) -> 'Raster':
         """

@@ -98,12 +98,19 @@ def test_raster_plot_hillshade_switches_the_scale():
         """
 
         def read_window(self, bbox=None, max_px=2000, every=None, resampling=None):
-            return np.ma.array(_dem()), (-4.762, 9.556, 41.384, 51.097)
+            # A DataArray carrying its own georeferencing, as the real one returns.
+            import xarray as xr
+
+            values = _dem()
+            rows, cols = values.shape
+            window = xr.DataArray(values, dims=('y', 'x'),
+                                  coords={'y': np.linspace(51.097, 41.384, rows),
+                                          'x': np.linspace(-4.762, 9.556, cols)})
+            window.rio.write_crs('EPSG:4326', inplace=True)
+            return window
 
         @property
         def bounds(self):
-            # (xmin, ymin, xmax, ymax), as rioxarray's rio.bounds() returns -- not the
-            # (xmin, xmax, ymin, ymax) that read_window hands back for imshow.
             return (-4.762, 41.384, 9.556, 51.097)
 
     _, ax  = BaseMap(bbox='fr', crs='laea_eu').plot()
@@ -289,11 +296,11 @@ def test_every_reads_one_pixel_in_every_n(tmp_path):
         dst.write(np.arange(6000.0).reshape(100, 60).astype('float32'), 1)
 
     raster = Raster(path)
-    assert raster.read_window(every=1)[0].shape  == (100, 60)
-    assert raster.read_window(every=10)[0].shape == (10, 6)
-    assert raster.read_window(every=4)[0].shape  == (25, 15)
+    assert raster.read_window(every=1).shape  == (100, 60)
+    assert raster.read_window(every=10).shape == (10, 6)
+    assert raster.read_window(every=4).shape  == (25, 15)
     # every wins over max_px, since the two size the same thing from opposite ends.
-    assert raster.read_window(max_px=50, every=10)[0].shape == (10, 6)
+    assert raster.read_window(max_px=50, every=10).shape == (10, 6)
 
 def test_every_below_one_is_refused(tmp_path):
     """

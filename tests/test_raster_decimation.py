@@ -50,8 +50,8 @@ def whole_bbox():
     """
     The synthetic raster's full footprint as a bbox -- ``[minx, miny, maxx, maxy]``.
 
-    Note the order: a bbox is not an extent. ``read_window`` takes the former, and echoes
-    back the latter for plotting.
+    ``read_window`` takes a region; its result carries its own footprint, as
+    ``window.plotea.bbox`` and ``window.plotea.extent``.
 
     Examples
     --------
@@ -71,7 +71,8 @@ def test_read_decimates_to_max_px(raster_path):
 
     """
     for max_px in (50, 150, 400):
-        data, extent = Raster(raster_path).read_window(whole_bbox(), max_px=max_px)
+        window = Raster(raster_path).read_window(whole_bbox(), max_px=max_px)
+        data, extent = window.plotea.to_masked(), window.plotea.extent
         assert max(data.shape) == max_px, f'{data.shape} for max_px={max_px}'
         minx, miny, maxx, maxy = whole_bbox()
         assert extent == (minx, maxx, miny, maxy)     # the window read, in extent order
@@ -141,7 +142,7 @@ def test_average_decimation_gives_block_means(raster_path):
     """
     factor    = 12
     max_px    = SIDE // factor
-    data, _   = Raster(raster_path, resampling='average').read_window(whole_bbox(), max_px=max_px)
+    data = Raster(raster_path, resampling='average').read_window(whole_bbox(), max_px=max_px).plotea.to_masked()
     rows      = np.arange(SIDE, dtype=float).reshape(max_px, factor)
     expected  = rows.mean(axis=1)                # the ramp is constant along each row
     assert data.shape == (max_px, max_px)
@@ -160,7 +161,7 @@ def test_nearest_decimation_keeps_the_original_values(raster_path):
     >>> test_nearest_decimation_keeps_the_original_values(path)
 
     """
-    data, _ = Raster(raster_path, resampling='nearest').read_window(whole_bbox(), max_px=100)
+    data = Raster(raster_path, resampling='nearest').read_window(whole_bbox(), max_px=100).plotea.to_masked()
     values  = np.unique(data.compressed())
     assert np.all(values == np.round(values))    # row indices are integers; no averaging
     assert set(values.tolist()) <= set(range(SIDE))
@@ -175,7 +176,7 @@ def test_nodata_survives_decimation(raster_path):
     >>> test_nodata_survives_decimation(path)
 
     """
-    data, _ = Raster(raster_path, resampling='nearest').read_window(whole_bbox(), max_px=120)
+    data = Raster(raster_path, resampling='nearest').read_window(whole_bbox(), max_px=120).plotea.to_masked()
     assert data.mask[:5, :5].all(), 'the nodata corner should be masked'
     assert not data.mask[-5:, -5:].any(), 'the far corner has data'
     assert data.min() >= 0, 'no nodata leaked into the values'
@@ -190,8 +191,8 @@ def test_scale_is_applied_after_decimation(raster_path):
     >>> test_scale_is_applied_after_decimation(path)
 
     """
-    plain, _  = Raster(raster_path).read_window(whole_bbox(), max_px=100)
-    scaled, _ = Raster(raster_path, scale=0.01).read_window(whole_bbox(), max_px=100)
+    plain = Raster(raster_path).read_window(whole_bbox(), max_px=100).plotea.to_masked()
+    scaled = Raster(raster_path, scale=0.01).read_window(whole_bbox(), max_px=100).plotea.to_masked()
     np.testing.assert_allclose(scaled.compressed(), plain.compressed() * 0.01, rtol=1e-6)
 
 
@@ -205,7 +206,7 @@ def test_window_smaller_than_max_px_is_not_upsampled(raster_path):
 
     """
     bbox    = [ORIGIN[0], ORIGIN[1] - 50 * PIXEL, ORIGIN[0] + 50 * PIXEL, ORIGIN[1]]
-    data, _ = Raster(raster_path).read_window(bbox, max_px=5000)
+    data = Raster(raster_path).read_window(bbox, max_px=5000).plotea.to_masked()
     assert data.shape == (50, 50), f'{data.shape}: a 50 px window should stay 50 px'
 
 
@@ -222,7 +223,7 @@ def test_resampling_can_be_overridden_per_call(raster_path):
 
     """
     averaging = Raster(raster_path, resampling='average')
-    default, _  = averaging.read_window(whole_bbox(), max_px=100)
-    override, _ = averaging.read_window(whole_bbox(), max_px=100, resampling='nearest')
+    default = averaging.read_window(whole_bbox(), max_px=100).plotea.to_masked()
+    override = averaging.read_window(whole_bbox(), max_px=100, resampling='nearest').plotea.to_masked()
     assert not np.allclose(default.compressed(), override.compressed()), 'the override changed nothing'
     assert np.all(override.compressed() == np.round(override.compressed()))   # nearest keeps source values
