@@ -97,7 +97,7 @@ def test_raster_plot_hillshade_switches_the_scale():
 
         """
 
-        def read_window(self, bbox=None, max_px=2000, resampling=None):
+        def read_window(self, bbox=None, max_px=2000, every=None, resampling=None):
             return np.ma.array(_dem()), (-4.762, 9.556, 41.384, 51.097)
 
         @property
@@ -237,3 +237,112 @@ def test_details_refuses_a_raster_with_no_file():
 
     with pytest.raises(ValueError, match='needs a file on disk'):
         Raster(data=np.ones((3, 3))).details
+
+
+def test_info_is_details_without_the_statistics(tmp_path):
+    """
+    The same labelled column, minus the three fields that cost a pass over the band.
+
+    Examples
+    --------
+    >>> pytest tests/test_raster.py -k info_is_details
+
+    """
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from plotea.maps.raster import Raster
+
+    path = tmp_path / 'ramp.tif'
+    with rasterio.open(path, 'w', driver='GTiff', height=12, width=12, count=1,
+                       dtype='float32', crs='EPSG:4326', nodata=-9999.0,
+                       transform=from_origin(9.0, 40.0, 0.01, 0.01)) as dst:
+        dst.write(np.arange(144.0).reshape(12, 12).astype('float32'), 1)
+
+    raster = Raster(path)
+    assert set(raster.details.index) - set(raster.info.index) == {'val_min', 'val_max',
+                                                                  'val_mean'}
+    for field in ('name', 'path', 'width', 'dtype', 'nodata', 'crs', 'block_x'):
+        assert raster.info[field] == raster.details[field]
+
+def test_every_reads_one_pixel_in_every_n(tmp_path):
+    """
+    A pixel stride, as against ``max_px``, which sizes the output instead.
+
+    ``every=1`` must read the window whole: it is the identity, and a reader who writes it
+    expecting no decimation should get none.
+
+    Examples
+    --------
+    >>> pytest tests/test_raster.py -k one_pixel_in_every
+
+    """
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from plotea.maps.raster import Raster
+
+    path = tmp_path / 'grid.tif'
+    with rasterio.open(path, 'w', driver='GTiff', height=100, width=60, count=1,
+                       dtype='float32', crs='EPSG:4326',
+                       transform=from_origin(9.0, 40.0, 0.01, 0.01)) as dst:
+        dst.write(np.arange(6000.0).reshape(100, 60).astype('float32'), 1)
+
+    raster = Raster(path)
+    assert raster.read_window(every=1)[0].shape  == (100, 60)
+    assert raster.read_window(every=10)[0].shape == (10, 6)
+    assert raster.read_window(every=4)[0].shape  == (25, 15)
+    # every wins over max_px, since the two size the same thing from opposite ends.
+    assert raster.read_window(max_px=50, every=10)[0].shape == (10, 6)
+
+def test_every_below_one_is_refused(tmp_path):
+    """
+    A stride under 1 would mean inventing pixels the file does not have.
+
+    Examples
+    --------
+    >>> pytest tests/test_raster.py -k below_one_is_refused
+
+    """
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from plotea.maps.raster import Raster
+
+    path = tmp_path / 'small.tif'
+    with rasterio.open(path, 'w', driver='GTiff', height=8, width=8, count=1,
+                       dtype='float32', crs='EPSG:4326',
+                       transform=from_origin(9.0, 40.0, 0.01, 0.01)) as dst:
+        dst.write(np.ones((8, 8), dtype='float32'), 1)
+
+    with pytest.raises(ValueError, match='at least 1'):
+        Raster(path).read_window(every=0)
+
+def test_a_per_call_cbar_rect_overrides_the_instance(tmp_path):
+    """
+    One Raster can carry a corner bar for a panel figure and a normal bar on its own.
+
+    Examples
+    --------
+    >>> pytest tests/test_raster.py -k per_call_cbar_rect
+
+    """
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from plotea.maps.raster import Raster
+
+    path = tmp_path / 'ramp.tif'
+    with rasterio.open(path, 'w', driver='GTiff', height=40, width=40, count=1,
+                       dtype='float32', crs='EPSG:4326',
+                       transform=from_origin(9.0, 40.0, 0.01, 0.01)) as dst:
+        dst.write(np.tile(np.arange(40.0), (40, 1)).astype('float32'), 1)
+
+    raster  = Raster(path, cbar_rect=(0.6, 0.05, 0.3, 0.02))
+    fig, ax = BaseMap(bbox=[9.0, 39.6, 9.4, 40.0]).plot()
+    # The instance's rect is a corner bar, so horizontal; overriding with None cannot
+    # reach "outside" because None means not-given, which is the documented behaviour.
+    inside = raster.plot(ax=ax, cbar=True)
+    assert inside is not None
+    outside = Raster(path).plot(ax=ax, cbar=True, cbar_rect=(0.1, 0.9, 0.3, 0.02))
+    assert outside is not None

@@ -196,20 +196,32 @@ class Raster:
         >>> Raster('sardinia_elv.tif').details['nodata']
 
         """
-        if self.path is None:
-            raise ValueError('details needs a file on disk; this Raster was built from an '
-                             'array and has no path, size or compression to report')
-        row = RasterAnalyzer.describe([self.path], stats=True, approx=False,
-                                      full=True).iloc[0]
-        # describe names it 'dir' because a table of many rasters is grouped by it; for one
-        # raster the useful pair is the full path and the directory it sits in.
-        row = row.rename({'dir': 'subdir'})
-        row['path'] = str(self.path)
-        order = ['name', 'path', 'subdir', 'size_gb', 'driver', 'width', 'height', 'n_bands',
-                 'dtype', 'nodata', 'val_min', 'val_max', 'val_mean', 'compression',
-                 'block_x', 'block_y', 'crs', 'res_x', 'res_y', 'x_min', 'y_min', 'x_max',
-                 'y_max']
-        return row.reindex(order)
+        return self.describe_file(statistics=True)
+
+    @property
+    def info(self) -> pd.Series:
+        """
+        What the file is, without reading a single value: the free half of :attr:`details`.
+
+        Same labelled column, same field names, minus ``val_min`` / ``val_max`` /
+        ``val_mean``. Those three are the only part that opens the band, and on a continental
+        mosaic computing them exactly is the difference between instant and minutes. So this
+        is the one to reach for when you want to know the shape, type, nodata, projection,
+        block layout or extent, and :attr:`details` when you also need to know what is
+        actually in there.
+
+        Returns
+        -------
+        pandas.Series
+            Indexed by field name, as :attr:`details` is.
+
+        Examples
+        --------
+        >>> Raster('sardinia_elv.tif').info
+        >>> Raster('sardinia_elv.tif').info['nodata']
+
+        """
+        return self.describe_file(statistics=False)
 
     @property
     def name(self) -> str:
@@ -337,20 +349,40 @@ class Raster:
         return ((lon1 - lon0) / shape[1] * 111320.0 * np.cos(np.radians(mid)),
                 (lat1 - lat0) / shape[0] * 110540.0)
 
-    def info(self):
+    def describe_file(self, statistics: bool = True) -> pd.Series:
         """
-        Log the path, shape, dtype, CRS, bounds and resolution. Reads the data if needed.
+        The row behind :attr:`info` and :attr:`details`; ``statistics`` is what separates them.
+
+        Public because it logs, and because a caller who wants the fields without going
+        through a property has somewhere to go. The field order is
+        :attr:`RasterAnalyzer.FULL_COLUMNS` with ``dir`` renamed and ``path`` added.
+
+        Parameters
+        ----------
+        statistics : bool
+            Compute ``val_min`` / ``val_max`` / ``val_mean``, exactly. This is the only part
+            that opens the band.
 
         Examples
         --------
-        >>> Raster('/data/merit_twi.vrt').info()
+        >>> Raster('sardinia_elv.tif').describe_file(statistics=False)
 
         """
-        _log.info('%s: has data=%s', self.path, self._data is not None)
-        if self.data is not None:
-            _log.info('shape=%s dtype=%s crs=%s bounds=%s resolution=%s',
-                      self.data.shape, self.data.dtype, self.crs, self.bounds, self.resolution)
-        return self
+        if self.path is None:
+            raise ValueError('describe_file needs a file on disk; this Raster was built from '
+                             'an array and has no path, size or compression to report')
+        row = RasterAnalyzer.describe([self.path], stats=statistics, approx=False,
+                                      full=True).iloc[0]
+        # describe names it 'dir' because a table of many rasters is grouped by it; for one
+        # raster the useful pair is the full path and the directory it sits in.
+        row = row.rename({'dir': 'subdir'})
+        row['path'] = str(self.path)
+        order = ['name', 'path', 'subdir', 'size_gb', 'driver', 'width', 'height', 'n_bands',
+                 'dtype', 'nodata', 'val_min', 'val_max', 'val_mean', 'compression',
+                 'block_x', 'block_y', 'crs', 'res_x', 'res_y', 'x_min', 'y_min', 'x_max',
+                 'y_max']
+        return row.reindex([field for field in order if statistics or
+                            field not in ('val_min', 'val_max', 'val_mean')])
 
     def mask_to_streams(self, stream_raster) -> "Raster":
         """
@@ -407,7 +439,11 @@ class Raster:
         base    = label if label is not None else (self.label or self.name)
         # A bar placed inside the map is the corner-bar style, which is horizontal; one
         # outside it matches every other plotea map, which is vertical.
-        rect    = kwargs.pop('rect', self.cbar_rect)
+        # None means "not asked for", so the instance's own placement still applies; a
+        # per-call rect overrides it. That is what lets one Raster carry a corner bar for a
+        # panel figure and still draw a normal outside bar on its own.
+        rect    = kwargs.pop('rect', None)
+        rect    = rect if rect is not None else self.cbar_rect
         default = 'horizontal' if rect is not None else 'vertical'
         bar     = Colorbar.attach(image, ax, label=f'{base} ({self.unit})' if self.unit else base,
                                   rect=rect, orientation=kwargs.pop('orientation', default),
@@ -462,7 +498,7 @@ class Raster:
         options['graticule_step'] = self.graticule_step(extent)
         return options
 
-    def plot(self, ax=None, bbox=None, max_px=2000, hillshade=False, blend_mode=None, cmap=None, vmin=None, vmax=None, resampling=None, vert_exag=2.5, basemap=False, cbar=False, label=None, **kwargs):
+    def plot(self, ax=None, bbox=None, max_px=2000, every=None, hillshade=False, blend_mode=None, cmap=None, vmin=None, vmax=None, resampling=None, vert_exag=2.5, basemap=False, cbar=False, cbar_rect=None, label=None, **kwargs):
         """
         Draw the raster on an axes: its values, or shaded relief made from them.
 
@@ -534,7 +570,7 @@ class Raster:
             # on it; otherwise it makes the figure and the axes.
             _, ax = basemap.plot(ax=ax)
             bbox  = bbox if bbox is not None else basemap.bbox
-        data, extent = self.read_window(bbox, max_px, resampling=resampling)
+        data, extent = self.read_window(bbox, max_px, every=every, resampling=resampling)
 
         if hillshade or blend_mode is not None:
             dx, dy = self.get_dx_dy(extent, data.shape)
@@ -553,7 +589,7 @@ class Raster:
             image = RasterPlotter.imshow(rgb, extent=extent, ax=ax, **kwargs)
             if cbar:
                 self.attach_cbar(ScalarMappable(norm=norm, cmap=plt.get_cmap(cmap)),
-                                 image.axes, label=label)
+                                 image.axes, label=label, rect=cbar_rect)
             return image
 
         cmap   = cmap if cmap is not None else self.cmap
@@ -575,7 +611,7 @@ class Raster:
             kwargs = {'cmap': cmap, 'vmin': vmin, 'vmax': vmax, **kwargs}
         image = RasterPlotter.imshow(data, extent=extent, ax=ax, **kwargs)
         if cbar:
-            self.attach_cbar(image, image.axes, label=label, scheme=scheme)
+            self.attach_cbar(image, image.axes, label=label, scheme=scheme, rect=cbar_rect)
         return image
 
     def plot_map(self, bbox=None, cmap=None, max_px=2000, hillshade=False, vmin=None, vmax=None, resampling=None, label=None, title=None, figsize=(8, 8), basemap=None):
@@ -625,7 +661,7 @@ class Raster:
             ax.set_title(title)
         return fig, ax
 
-    def read_window(self, bbox=None, max_px: int = 2000, resampling=None):
+    def read_window(self, bbox=None, max_px: int = 2000, every: int = None, resampling=None):
         """
         Read one decimated window: a masked array plus the extent it covers.
 
@@ -642,7 +678,18 @@ class Raster:
             ``Bbox.from_any(...)`` rather than someone's ``.extent`` tuple, whose order is
             ``(xmin, xmax, ymin, ymax)``.
         max_px : int
-            Target size of the longer output side.
+            Target size of the longer output side. Ignored when ``every`` is given.
+        every : int, optional
+            Read one pixel in every ``every``, in both directions: ``every=10`` of a
+            2000 x 3000 window gives 200 x 300. Use it when the stride is what you mean --
+            a quick look at a file, or a sample you want reproducible at a known spacing --
+            and ``max_px`` when the output size is what you mean. They set the same thing
+            from opposite ends, so ``every`` wins if both are given.
+
+            It subsamples: the default resampling becomes ``'nearest'``, so the values are
+            pixels that exist in the file rather than averages of their neighbours, which is
+            what "every tenth" says. Pass ``resampling='average'`` to average each
+            ``every`` x ``every`` block instead.
         resampling : str, optional
             Overrides ``self.resampling`` for this read -- 'average' for continuous values,
             'nearest' for a class raster, whose codes averaging would invent classes for.
@@ -673,9 +720,19 @@ class Raster:
                 extent = (b.left, b.right, b.bottom, b.top)
             lon0, lon1, lat0, lat1 = extent
             win = from_bounds(lon0, lat0, lon1, lat1, ds.transform)
-            scale = min(1.0, max_px / max(win.width, win.height))
-            out = (max(1, round(win.height * scale)), max(1, round(win.width * scale)))
-            how  = resampling if resampling is not None else self.resampling
+            if every is not None:
+                if int(every) < 1:
+                    raise ValueError(f'every must be at least 1, not {every}; it is a pixel '
+                                     f'stride, and a stride below 1 would mean inventing '
+                                     f'pixels the file does not have')
+                every = int(every)
+                out   = (max(1, round(win.height / every)), max(1, round(win.width / every)))
+                # Subsampling, because "every tenth pixel" means a pixel that is in the file.
+                how   = resampling if resampling is not None else 'nearest'
+            else:
+                scale = min(1.0, max_px / max(win.width, win.height))
+                out   = (max(1, round(win.height * scale)), max(1, round(win.width * scale)))
+                how   = resampling if resampling is not None else self.resampling
             data = ds.read(1, window=win, out_shape=out, resampling=Resampling[how], masked=True, boundless=True)
             if ds.nodata is not None:                               # external .ovr overviews may drop the nodata -> mask it explicitly
                 data = np.ma.masked_equal(data, ds.nodata)
