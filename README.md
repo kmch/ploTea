@@ -20,17 +20,19 @@ git clone git@github.com:kmch/plotea.git && cd plotea && pip install -e .
 ```
 
 Extras: `.[dggs]` for the HEALPix layer, `.[dev]` for the tests, `.[docs]` to build the
-documentation. There is a conda build, `conda install kmch::plotea`, but it is 0.0.2 from
-before this rewrite and has none of the map package.
+documentation.
 
 ## Quick start
 
+Everything below runs as written, on the DEM that ships with the repository.
+
 ```python
+import plotea
 from plotea import BaseMap, Raster, land_terrain, scalebar
 
 fig, ax = BaseMap().plot()                         # the world, country outlines, Equal Earth
 
-dem = Raster('elevation.tif', label='Elevation', unit='m')
+dem = Raster(plotea.PATH.datasets / 'sardinia_elv.tif', label='Elevation', unit='m')
 
 fig, ax = BaseMap(**dem.basemap_options()).plot()  # view and projection from the raster
 dem.plot(ax=ax, cmap=land_terrain(), blend_mode='hsv', cbar=True)
@@ -45,7 +47,18 @@ window.plotea.extent                     # cell edges, ready for imshow
 
 If you use any part of this repository in your research, please cite:
 
-- Chrapkiewicz, Kajetan and Lipp, Alex and Barron, Leon Patrick and Barnes, Richard and
-  Roberts, Gareth, **Apportioning sources of chemicals of emerging concern along an urban
-  river with inverse modelling**. Science of the Total Environment.
-  https://doi.org/10.1016/j.scitotenv.2024.172827
+> Chrapkiewicz K., Lipp A.G., Barron L.P., Barnes R., Roberts G.G. (2024). **Apportioning
+> sources of chemicals of emerging concern along an urban river with inverse modelling.**
+> *Science of the Total Environment*. https://doi.org/10.1016/j.scitotenv.2024.172827
+
+```bibtex
+@article{chrapkiewicz2024apportioning,
+  author  = {Chrapkiewicz, Kajetan and Lipp, Alex G. and Barron, Leon P. and
+             Barnes, Richard and Roberts, Gareth G.},
+  title   = {Apportioning sources of chemicals of emerging concern along an urban
+             river with inverse modelling},
+  journal = {Science of the Total Environment},
+  year    = {2024},
+  doi     = {10.1016/j.scitotenv.2024.172827},
+}
+```
