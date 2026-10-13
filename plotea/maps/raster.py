@@ -945,7 +945,34 @@ class RasterAnalyzer:
         import rasterio
 
         rows = []
-        for path in cls._paths(rasters):
+        # GDAL caches computed statistics in a <raster>.aux.xml sidecar beside the file. That
+        # writes into the data directory -- which may be read-only, or shared, or under
+        # version control -- and a cached figure outlives the raster it describes, so a file
+        # rewritten in place reports the old range. Neither is worth a cache nobody asked
+        # for, so PAM is off and every pass is computed fresh.
+        with rasterio.Env(GDAL_PAM_ENABLED='NO'):
+            rows = cls._describe_rows(cls._paths(rasters), stats, approx, full)
+        _log.info(f'Described {len(rows)} raster(s)')
+        df = pd.DataFrame(rows)
+        if full:
+            df = df[[c for c in cls.FULL_COLUMNS if c in df.columns]]
+        return df
+
+    @classmethod
+    def _describe_rows(cls, paths, stats, approx, full) -> list:
+        """
+        One row per raster. Split from :meth:`describe` only so the PAM setting wraps it.
+
+        Examples
+        --------
+        >>> RasterAnalyzer._describe_rows(paths, stats=True, approx=False, full=True)
+
+        """
+        import rasterio
+        import warnings
+
+        rows = []
+        for path in paths:
             with rasterio.open(path) as ds:
                 row = {'name': path.name,
                        'dir': path.parent.name,
@@ -974,11 +1001,7 @@ class RasterAnalyzer:
                                res_x=res_x, res_y=res_y,
                                x_min=b.left, y_min=b.bottom, x_max=b.right, y_max=b.top)
             rows.append(row)
-        _log.info(f'Described {len(rows)} raster(s)')
-        df = pd.DataFrame(rows)
-        if full:
-            df = df[[c for c in cls.FULL_COLUMNS if c in df.columns]]
-        return df
+        return rows
 
     @classmethod
     def summary(cls, rasters, group_by=REGUNIT_SUFFIX, stats: bool = True, approx: bool = True) -> pd.DataFrame:

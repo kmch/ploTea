@@ -132,3 +132,6 @@ dmypy.json
 
 # Generated example outputs
 examples/*.png
+
+# GDAL writes these beside a raster when it computes statistics.
+*.aux.xml
