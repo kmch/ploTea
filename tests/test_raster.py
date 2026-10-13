@@ -112,3 +112,68 @@ def test_raster_plot_hillshade_switches_the_scale():
     assert values.get_clim() == (0, 100)
     assert shaded.get_clim() == (0, 1)
     assert shaded.get_array().min() >= 0 and shaded.get_array().max() <= 1
+
+
+def test_shaded_colour_returns_rgba_with_nodata_transparent():
+    """
+    Colour blended with relief, and masked cells fully transparent rather than shaded.
+
+    Transparency is the point: a hillshade of nodata is flat grey, which reads as flat
+    ground, so an absence would look like a plain.
+
+    Examples
+    --------
+    >>> pytest tests/test_raster.py -k shaded_colour_returns
+
+    """
+    dem  = np.ma.masked_array(np.tile(np.arange(10.0), (10, 1)),
+                              mask=np.zeros((10, 10), dtype=bool))
+    dem.mask[0, :] = True
+    rgb = RasterPlotter.shaded_colour(dem, 'viridis', vert_exag=2, dx=10, dy=10)
+    assert rgb.shape == (10, 10, 4)
+    assert np.all(rgb[0, :, 3] == 0.0)
+    assert np.all(rgb[1:, :, 3] > 0.0)
+
+def test_shaded_colour_refuses_a_discrete_cmap():
+    """
+    Shading a classified raster moves each class off its own colour, so it is refused.
+
+    Examples
+    --------
+    >>> pytest tests/test_raster.py -k refuses_a_discrete
+
+    """
+    from plotea.maps.cmaps import esa_worldcover
+
+    with pytest.raises(TypeError, match='continuous colormap'):
+        RasterPlotter.shaded_colour(np.ones((4, 4)), esa_worldcover())
+
+def test_blend_mode_keeps_the_grey_hillshade_path_intact(tmp_path):
+    """
+    ``hillshade=True`` alone still draws grey relief; ``blend_mode`` is what changes it.
+
+    Examples
+    --------
+    >>> pytest tests/test_raster.py -k keeps_the_grey
+
+    """
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from plotea.maps.raster import Raster
+
+    path = tmp_path / 'ramp.tif'
+    with rasterio.open(path, 'w', driver='GTiff', height=40, width=40, count=1,
+                       dtype='float32', crs='EPSG:4326',
+                       transform=from_origin(9.0, 40.0, 0.01, 0.01)) as dst:
+        dst.write(np.tile(np.arange(40.0), (40, 1)).astype('float32'), 1)
+
+    raster  = Raster(path)
+    fig, ax = BaseMap(bbox=[9.0, 39.6, 9.4, 40.0]).plot()
+    grey    = raster.plot(ax=ax, hillshade=True)
+    assert grey.get_array().ndim == 2
+    assert grey.get_cmap().name == 'gray'
+
+    blended = raster.plot(ax=ax, hillshade=True, blend_mode='hsv')
+    assert blended.get_array().ndim == 3
+    assert blended.get_array().shape[2] == 4

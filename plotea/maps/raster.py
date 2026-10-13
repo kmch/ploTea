@@ -8,7 +8,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import LightSource
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import LightSource, Normalize
 
 from plotea.log import get_logger
 
@@ -410,7 +411,7 @@ class Raster:
         options['graticule_step'] = self.graticule_step(extent)
         return options
 
-    def plot(self, ax=None, bbox=None, max_px=2000, hillshade=False, cmap=None, vmin=None, vmax=None, resampling=None, vert_exag=2.5, basemap=False, cbar=False, label=None, **kwargs):
+    def plot(self, ax=None, bbox=None, max_px=2000, hillshade=False, blend_mode=None, cmap=None, vmin=None, vmax=None, resampling=None, vert_exag=2.5, basemap=False, cbar=False, label=None, **kwargs):
         """
         Draw the raster on an axes: its values, or shaded relief made from them.
 
@@ -427,6 +428,11 @@ class Raster:
             VRT means reading every pixel, so pass one.
         max_px : int
             Decimation target for the read.
+        blend_mode : str, optional
+            With ``hillshade``, blend the colours with the relief instead of drawing relief
+            alone: ``'hsv'``, ``'overlay'`` or ``'soft'``. Setting it implies shading, so
+            ``blend_mode='hsv'`` is enough on its own. The returned image is RGBA and
+            carries no colormap, so ``cbar=True`` builds the bar its own mappable.
         hillshade : bool
             Draw shaded relief from the values instead of the values themselves -- grey,
             0 to 1, with the pixel spacing in metres worked out from the window. For a DEM
@@ -479,11 +485,25 @@ class Raster:
             bbox  = bbox if bbox is not None else basemap.bbox
         data, extent = self.read_window(bbox, max_px, resampling=resampling)
 
-        if hillshade:
+        if hillshade or blend_mode is not None:
             dx, dy = self.get_dx_dy(extent, data.shape)
-            shade  = RasterPlotter.hillshaded(data, vert_exag=vert_exag, dx=dx, dy=dy)
-            kwargs = {'cmap': 'gray', 'vmin': 0, 'vmax': 1, **kwargs}
-            return RasterPlotter.imshow(shade, extent=extent, ax=ax, **kwargs)
+            if blend_mode is None:
+                shade  = RasterPlotter.hillshaded(data, vert_exag=vert_exag, dx=dx, dy=dy)
+                kwargs = {'cmap': 'gray', 'vmin': 0, 'vmax': 1, **kwargs}
+                return RasterPlotter.imshow(shade, extent=extent, ax=ax, **kwargs)
+            # Colour and relief together. The norm has to be built here rather than left to
+            # imshow, because an RGBA image has none and the colorbar needs one.
+            cmap = cmap if cmap is not None else self.cmap
+            if self.robust and vmin is None and vmax is None and data.count():
+                vmin, vmax = (float(v) for v in np.nanpercentile(data.compressed(), [2, 98]))
+            norm  = Normalize(vmin=vmin, vmax=vmax)
+            rgb   = RasterPlotter.shaded_colour(data, cmap, norm=norm, vert_exag=vert_exag,
+                                                dx=dx, dy=dy, blend_mode=blend_mode)
+            image = RasterPlotter.imshow(rgb, extent=extent, ax=ax, **kwargs)
+            if cbar:
+                self.attach_cbar(ScalarMappable(norm=norm, cmap=plt.get_cmap(cmap)),
+                                 image.axes, label=label)
+            return image
 
         cmap   = cmap if cmap is not None else self.cmap
         scheme = cmap if isinstance(cmap, DiscreteCmap) else None
@@ -1193,4 +1213,67 @@ class RasterPlotter:
         filled = arr.filled(np.ma.median(arr)) if mask.any() else np.asarray(arr)
         intensity = LightSource(azdeg=azdeg, altdeg=altdeg).hillshade(filled, vert_exag=vert_exag, dx=dx, dy=dy)
         return np.ma.array(intensity, mask=mask)
+
+    @staticmethod
+    def shaded_colour(dem, cmap, norm=None, azdeg: float = 315.0, altdeg: float = 45.0, vert_exag: float = 1.0, dx: float = 1.0, dy: float = 1.0, blend_mode: str = 'hsv'):
+        """
+        Return an RGBA image of ``dem`` coloured by ``cmap`` and modulated by its own relief.
+
+        The usual choice for a published elevation figure, because colour and relief answer
+        different questions -- how high, and what shape -- and a reader wants both at once.
+        :meth:`hillshaded` gives the shape alone, in grey.
+
+        What it costs: an RGBA image carries no colormap and no norm, so matplotlib cannot
+        build a colorbar from it. The ``norm`` passed in here is the one a caller must also
+        give to the bar; :meth:`Raster.plot` does that for you.
+
+        Parameters
+        ----------
+        dem : array-like
+            Elevation grid. A masked array keeps its mask, and masked cells come back fully
+            transparent rather than shaded, so nodata does not read as flat ground.
+        cmap : str or Colormap
+            The colours. A ``DiscreteCmap`` is not accepted: shading a classified raster
+            moves its colours off their class values, which is the one thing a class
+            colour must not do.
+        norm : matplotlib.colors.Normalize, optional
+            The value-to-colour mapping; the array's own range if None.
+        azdeg, altdeg : float
+            Illumination azimuth and altitude, in degrees.
+        vert_exag : float
+            Vertical exaggeration. With true ``dx``/``dy`` the relief of gentle terrain is
+            barely visible at 1; 3 brings out a mountain range, and past about 10 the
+            shading starts to invent texture that is not in the data.
+        dx, dy : float
+            Pixel spacing in the elevation's own units, as for :meth:`hillshaded`.
+        blend_mode : str
+            ``'hsv'``, ``'overlay'`` or ``'soft'``, passed to matplotlib's ``LightSource``.
+            ``'soft'`` is the gentlest and ``'hsv'`` shows the most relief.
+
+        Returns
+        -------
+        numpy.ndarray
+            An ``(M, N, 4)`` RGBA array; draw it with ``imshow`` and no cmap.
+
+        Examples
+        --------
+        >>> rgb = RasterPlotter.shaded_colour(dem, land_terrain(), vert_exag=3, dx=90, dy=90)
+        >>> RasterPlotter.imshow(rgb, extent=ext, ax=ax)
+
+        """
+        from plotea.maps.cmaps import DiscreteCmap
+
+        if isinstance(cmap, DiscreteCmap):
+            raise TypeError('shaded_colour needs a continuous colormap: shading a '
+                            'DiscreteCmap moves each class off its own colour. Draw the '
+                            'classes flat, or shade a continuous covariate instead.')
+        arr    = np.ma.asarray(dem).astype(float)
+        mask   = np.ma.getmaskarray(arr)
+        # Filled flat before shading, as in hillshaded, so the coastline gets no false cliff.
+        filled = arr.filled(np.ma.median(arr)) if mask.any() else np.asarray(arr)
+        rgb    = LightSource(azdeg=azdeg, altdeg=altdeg).shade(
+            filled, cmap=plt.get_cmap(cmap), norm=norm, vert_exag=vert_exag, dx=dx, dy=dy,
+            blend_mode=blend_mode)
+        rgb[..., 3] = np.where(mask, 0.0, rgb[..., 3])
+        return rgb
 
