@@ -16,8 +16,6 @@ it or ``plotea.init_logging(plotea.DEBUG)`` for more.
 For now this pulls every public name from every module into the top-level
 namespace, for convenience. A curated public surface comes later.
 
-Legacy code under ``plotea.legacy`` is frozen and not re-exported.
-
 """
 import geopandas as gpd
 import matplotlib.pyplot as plt
