@@ -29,16 +29,30 @@ describes intentions.
 
 | the requirement | what plotea does |
 | --- | --- |
-| sans-serif lettering, one typeface throughout | `styles/plotea.mplstyle` sets `font.family: Arial` |
-| thinnest lines no smaller than one point | the same file sets `axes.linewidth: 1` and `lines.linewidth: 1`, against matplotlib's defaults of 0.8 and 1.5 |
+| sans-serif lettering, one typeface throughout | `styles/plotea.mplstyle` sets `font.family: Arial` -- **offered, not applied**: see below |
+| thinnest lines no smaller than one point | the same file sets `axes.linewidth: 1` and `lines.linewidth: 1`, against matplotlib's defaults of 0.8 and 1.5 -- same caveat |
 | lower-case bold **a**, **b** panel labels | {func}`~plotea.generic.labels.panel_label`, bold by default |
 | scale bars rather than magnification factors, length defined in the legend | {func}`~plotea.generic.scalebar.scalebar` draws a segmented bar in projected coordinates and leaves the number to the caption |
 | white background, no spurious decoration | the basemap styles in {mod}`plotea.maps.styles` fill land and sea flat, with no frame or shadow |
 | labelling readable and consistent across panels | {meth}`~plotea.maps.colorbar.Colorbar.format_ticks` fixes the formatter once, so one panel cannot read `0.05` while its neighbour reads `5e-02` |
 | one panel unless the parts are logically connected, all reduced by the same amount | {mod}`plotea.maps.layout` aligns equal-aspect map axes so a figure scales as a whole |
 
-Two requirements the package does **not** currently meet, recorded here rather than quietly
-omitted. It offers no colour-blind-safe sequential ramp: {mod}`plotea.maps.cmaps` carries
+``plotea.mplstyle`` is a file in the repository and nothing loads it. The typography and line
+weights above are therefore what you get **only if you ask**:
+
+```python
+import matplotlib.pyplot as plt
+import plotea
+
+plt.style.use(plotea.PATH.styles / 'plotea.mplstyle')
+```
+
+Left opt-in on purpose -- a library that rewrites your rcParams on import is a library that
+breaks every other figure in your session -- but it does mean a plotea figure is matplotlib's
+defaults until you say otherwise.
+
+Two further requirements the package does **not** currently meet, recorded here rather than
+quietly omitted. It offers no colour-blind-safe sequential ramp: {mod}`plotea.maps.cmaps` carries
 discrete class schemes (ESA WorldCover, Koeppen-Geiger) and a land-terrain ramp, and
 matplotlib's `terrain`, which the latter builds on, is itself perceptually non-uniform -- so the
 rule against non-uniform scales is satisfied only by there being no rainbow on offer, not by the

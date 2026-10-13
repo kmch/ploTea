@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "plotea"
 version = "0.1.0"
-description = "Publication-quality scientific figures: maps, graphs, time series and volumes."
+description = "Publication-quality maps: rasters, vectors, swaths and the HEALPix DGGS."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "Kajetan Chrapkiewicz"}]
@@ -27,17 +27,21 @@ dependencies = [
 
 [project.optional-dependencies]
 # The HEALPix layer is the one part with dependencies of its own, and it is the one part a
-# map-only install has no use for.
-dggs = ["healpix-geo", "healpix-plot"]
+# map-only install has no use for. healpix-plot has a floor because its API moved: it spells
+# the colorbar keyword `colorbar` where an earlier release spelt it `cbar`, and 2026.7 is the
+# version this is tested against.
+dggs = ["healpix-geo", "healpix-plot>=2026.7"]
 dev = ["pytest", "pytest-cov"]
-docs = ["sphinx", "myst-parser", "pydata-sphinx-theme", "sphinx-design", "myst-nb"]
+# ipykernel and the dggs extra because the docs execute notebooks/plotea.ipynb, and one of
+# its sections draws the HEALPix grid.
+docs = ["sphinx", "myst-parser", "pydata-sphinx-theme", "sphinx-design", "myst-nb",
+        "ipykernel", "plotea[dggs]"]
 
 [project.urls]
 Homepage = "https://github.com/kmch/plotea"
 
 [tool.setuptools.packages.find]
 include = ["plotea*"]
-
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

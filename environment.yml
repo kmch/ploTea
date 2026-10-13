@@ -1,21 +1,40 @@
-name: plotea 
+# A development environment: conda for the compiled geospatial stack, pip for plotea itself.
+#
+#   conda env create -f environment.yml && conda activate plotea
+#
+# conda-forge comes first deliberately. GDAL, PROJ and GEOS are shared libraries, and mixing
+# conda-forge builds with defaults' builds of the same stack is how an import starts failing
+# with a version mismatch nobody can trace.
+name: plotea
 channels:
-  - defaults
   - conda-forge
 dependencies:
-  - python=3.13
-  - matplotlib
+  - python>=3.11          # plotea/log.py reads code.co_qualname
+# Core
+  - matplotlib>=3.9,<4
   - numpy
-  - pytest
-  - sphinx
-  - sphinx-rtd-theme
-# Data science
   - pandas
-  - scipy
 # Geospatial
-  - geopandas
+  - cartopy>=0.23
+  - geopandas>=1.0
+  - rasterio
+  - rioxarray
+  - shapely
   - xarray
-# Visualisation
-  - cartopy
-# Pip  
+# Notebooks
+  - ipykernel
+  - jupyterlab
+# Tests
+  - pytest
+  - pytest-cov
+# Docs
+  - myst-nb
+  - myst-parser
+  - pydata-sphinx-theme
+  - sphinx
+  - sphinx-design
   - pip
+  - pip:
+      - healpix-geo                # the HEALPix DGGS layer: indexing on WGS84
+      - healpix-plot>=2026.7       # and its rasteriser; see the dggs extra in pyproject
+      - -e .
