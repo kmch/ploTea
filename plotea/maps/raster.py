@@ -641,7 +641,7 @@ class Raster:
         >>> Raster(dem_path).plot(basemap={'coastline': True})
 
         """
-        from plotea.maps.cmaps import DiscreteCmap
+        from plotea.maps.cmaps import ContinuousCmap, DiscreteCmap
 
         # extent= would otherwise land in **kwargs, leaving bbox None: the whole raster gets
         # read (minutes, for a continental VRT) before imshow rejects the duplicate keyword.
@@ -681,7 +681,20 @@ class Raster:
 
         cmap   = cmap if cmap is not None else self.cmap
         scheme = cmap if isinstance(cmap, DiscreteCmap) else None
-        if scheme is not None:
+        if isinstance(cmap, ContinuousCmap):
+            # The norm is built here rather than carried on the scheme, because it needs the
+            # data: a diverging scheme falls back to a plain ramp where the values do not
+            # straddle its centre. See ContinuousCmap.norm_for.
+            label = label if label is not None else cmap.label
+            if cmap.scale != 1:
+                # Before the norm, so that a diverging centre and a log scale are both read
+                # in the unit the bar is labelled with rather than the one on disk.
+                data = data * cmap.scale
+            built  = cmap.norm_for(data)
+            kwargs = {'cmap': cmap.cmap, **({'norm': built} if built is not None else {}),
+                      **kwargs}
+            cmap   = cmap.cmap
+        elif scheme is not None:
             kwargs = {'cmap': scheme.cmap, 'norm': scheme.norm, **kwargs}
         elif kwargs.get('norm') is not None:
             # A norm carries its own limits, and matplotlib refuses both at once. So neither
@@ -735,10 +748,12 @@ class Raster:
 
         """
         from plotea.maps.base import BaseMap
-        from plotea.maps.cmaps import DiscreteCmap
+        from plotea.maps.cmaps import ContinuousCmap, DiscreteCmap
 
         cmap    = cmap if cmap is not None else self.cmap
         scheme  = cmap if isinstance(cmap, DiscreteCmap) else None
+        if isinstance(cmap, ContinuousCmap) and label is None:
+            label = cmap.label + (f' ({cmap.unit})' if cmap.unit else '')
         basemap = BaseMap.from_any(basemap, **self.basemap_options(bbox))
         fig, ax = basemap.plot(figsize=figsize)
         im = self.plot(ax=ax, bbox=bbox, max_px=max_px, hillshade=hillshade, cmap=cmap,
