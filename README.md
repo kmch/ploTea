@@ -16,7 +16,7 @@ One screen of code, on a DEM that ships with the repository. See
 ## Installation
 
 ```bash
-git clone git@github.com:kmch/plotea.git && cd plotea && pip install -e .
+git clone git@github.com:kmch/ploTea.git plotea && cd plotea && pip install -e .
 ```
 
 Extras: `.[dggs]` for the HEALPix layer, `.[dev]` for the tests, `.[docs]` to build the
@@ -50,12 +50,13 @@ time as an image (`Gather`) and a single trace (`Trace`), each from an xarray Da
 depth and time running down the page. fwipy uses it for its models, snapshots and gathers.
 
 ```python
-from plotea.seismic import Gather, Section, Trace
+from plotea.seismic import Gather, PhaseMap, Section, Trace
 
 fig, ax = Section(model.vp).plot(label='P-wave velocity (m/s)')   # dims ('z', 'x'), in metres
-fig, ax = Section(snapshot).plot(symmetric=True)                  # RdBu, white at zero
+fig, ax = Section(snapshot).plot(symmetric=True)                  # RdBu_r, white at zero
 fig, ax = Gather(gather).plot(clip=99)                            # dims ('receiver', 'time'), seconds
 fig, ax = Trace(wavelet).plot()                                   # dim 'time'
+fig, ax = PhaseMap(residual).plot(source=(x, z))                  # dim 'receiver', radians, at the receivers' positions
 ```
 
 ## Citing

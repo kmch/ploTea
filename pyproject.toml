@@ -38,7 +38,7 @@ docs = ["sphinx", "myst-parser", "pydata-sphinx-theme", "sphinx-design", "myst-n
         "ipykernel", "plotea[dggs]"]
 
 [project.urls]
-Homepage = "https://github.com/kmch/plotea"
+Homepage = "https://github.com/kmch/ploTea"
 
 [tool.setuptools.packages.find]
 include = ["plotea*"]
