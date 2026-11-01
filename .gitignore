@@ -135,3 +135,7 @@ examples/*.png
 
 # GDAL writes these beside a raster when it computes statistics.
 *.aux.xml
+
+# Claude's notes and settings: never tracked
+CLAUDE.md
+.claude/
