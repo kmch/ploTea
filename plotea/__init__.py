@@ -39,5 +39,6 @@ from plotea.maps.raster import *
 from plotea.maps.colorbar import *
 from plotea.maps.swath import *
 from plotea.maps.dggs import *
+from plotea.seismic import *
 
 init_logging()

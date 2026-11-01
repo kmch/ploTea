@@ -43,6 +43,21 @@ window = dem.read_window(max_px=2000)    # or every=10, a stride; a DataArray wi
 window.plotea.extent                     # cell edges, ready for imshow
 ```
 
+### Seismic plots
+
+`plotea.seismic` draws what is not a map: a field over x and depth (`Section`), traces over
+time as an image (`Gather`) and a single trace (`Trace`), each from an xarray DataArray, with
+depth and time running down the page. fwipy uses it for its models, snapshots and gathers.
+
+```python
+from plotea.seismic import Gather, Section, Trace
+
+fig, ax = Section(model.vp).plot(label='P-wave velocity (m/s)')   # dims ('z', 'x'), in metres
+fig, ax = Section(snapshot).plot(symmetric=True)                  # grey scale centred on zero
+fig, ax = Gather(gather).plot(clip=99)                            # dims ('receiver', 'time'), seconds
+fig, ax = Trace(wavelet).plot()                                   # dim 'time'
+```
+
 ## Citing
 
 If you use any part of this repository in your research, please cite:
