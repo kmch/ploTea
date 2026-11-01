@@ -49,7 +49,7 @@ def test_a_section_runs_depth_down_on_the_cell_edges(section):
 
 def test_a_symmetric_section_centres_the_scale_on_zero(section):
     """
-    A wavefield's grey scale runs from -v to +v, so zero is mid-grey whatever the data's range.
+    A wavefield's scale runs from -v to +v, so zero is white whatever the data's range.
 
     Examples
     --------

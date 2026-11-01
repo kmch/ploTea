@@ -53,7 +53,7 @@ depth and time running down the page. fwipy uses it for its models, snapshots an
 from plotea.seismic import Gather, Section, Trace
 
 fig, ax = Section(model.vp).plot(label='P-wave velocity (m/s)')   # dims ('z', 'x'), in metres
-fig, ax = Section(snapshot).plot(symmetric=True)                  # grey scale centred on zero
+fig, ax = Section(snapshot).plot(symmetric=True)                  # RdBu, white at zero
 fig, ax = Gather(gather).plot(clip=99)                            # dims ('receiver', 'time'), seconds
 fig, ax = Trace(wavelet).plot()                                   # dim 'time'
 ```

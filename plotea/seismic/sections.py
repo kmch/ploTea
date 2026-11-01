@@ -3,7 +3,9 @@ Seismic plots: fields over x and depth, traces over time, and single traces.
 
 Notes
 -----
-Depth and time both run down the page, as seismologists read them. Every image is drawn
+Depth and time both run down the page, as seismologists read them. Gathers default to
+the red-white-blue ``RdBu`` scale, white at zero, so positive and negative amplitudes read
+apart at a glance, and so do wavefield sections; models are grey. Every image is drawn
 with ``imshow`` on the cell edges worked out from the coordinates, so a node sits at the
 centre of its pixel rather than on a corner.
 
@@ -55,13 +57,24 @@ class Gather:
     def __repr__(self):
         return f'Gather(dims={self.da.dims}, shape={self.da.shape})'
 
-    def plot(self, ax=None, clip=99.0, cmap='gray', title=None):
+    def plot(self, ax=None, clip=99.0, vmax=None, cmap='RdBu', colorbar=True, label='Amplitude', title=None):
         """
-        Draw the gather with a grey scale symmetric about zero, clipped at a percentile of |amplitude|.
+        Draw the gather with a colour scale symmetric about zero and a colorbar fitted to the axes.
+
+        Parameters
+        ----------
+        clip : float
+            Percentile of |amplitude| at which the scale saturates, when ``vmax`` is not given.
+        vmax : float, optional
+            The scale's limit, -vmax to +vmax; pass the same value to several panels so they
+            share one scale.
+        colorbar : bool
+            Attach a colorbar; leave it off on all but one of a set of panels sharing a scale.
 
         Examples
         --------
         >>> Gather(gather).plot(clip=98)
+        >>> Gather(difference).plot(vmax=1e-8, colorbar=False)
 
         """
         trace_dim = [d for d in self.da.dims if d != 'time'][0]
@@ -73,15 +86,18 @@ class Gather:
         else:
             x      = np.arange(da.sizes[trace_dim], dtype=float)
             xlabel = trace_dim.capitalize()
-        vmax = float(np.percentile(np.abs(da.values), clip)) or 1.0
+        if vmax is None:
+            vmax = float(np.percentile(np.abs(da.values), clip)) or 1.0
+            _log.info(f'{da.sizes[trace_dim]} traces, clipped at {vmax:.3g} ({clip:g}th percentile of |amplitude|)')
         x0, x1 = _edges(x)
         t0, t1 = _edges(da['time'].values)
         if ax is None:
             fig, ax = plt.subplots(figsize=(6, 5))
         fig = ax.figure
-        ax.imshow(da.values, cmap=cmap, vmin=-vmax, vmax=vmax, extent=(x0, x1, t1, t0), aspect='auto', interpolation='nearest')
+        im  = ax.imshow(da.values, cmap=cmap, vmin=-vmax, vmax=vmax, extent=(x0, x1, t1, t0), aspect='auto', interpolation='nearest')
         ax.set(xlabel=xlabel, ylabel='Time (s)', title=title)
-        _log.info(f'{da.sizes[trace_dim]} traces, clipped at {vmax:.3g} ({clip:g}th percentile of |amplitude|)')
+        if colorbar:
+            Colorbar.attach(im, ax, label=label)
         return fig, ax
 
 
@@ -94,8 +110,10 @@ class Section:
     -----
     ``da`` has dimensions ``z`` and ``x``, in metres, ``z`` positive down. A model reads best
     in a sequential grey scale (``symmetric=False``); a wavefield in a grey scale symmetric
-    about zero (``symmetric=True``), so that zero is mid-grey. Both run from black to white,
-    low to high, so a slow anomaly is dark and black markers stay visible on a fast background.
+    about zero (``symmetric=True``), white at zero in ``RdBu``. The grey scale runs from black
+    to white, low to high, so a slow anomaly is dark and black markers stay visible on a fast
+    background. A wavefield can be drawn over its model (``background``) to show where it
+    meets the structure.
 
     Examples
     --------
@@ -107,38 +125,48 @@ class Section:
     def __repr__(self):
         return f'Section(name={self.da.name!r}, nz={self.da.sizes["z"]}, nx={self.da.sizes["x"]})'
 
-    def plot(self, ax=None, cmap=None, symmetric=False, clip=99.0, label='', sources=None, receivers=None, title=None):
+    def plot(self, ax=None, cmap=None, symmetric=False, clip=99.0, label='', sources=None, receivers=None, title=None, background=None, alpha=None):
         """
-        Draw the section with equal axes, a colorbar fitted to it, and optional source and receiver markers.
+        Draw the section with equal axes, a colorbar fitted to it, and optional markers and a field beneath it.
 
         Parameters
         ----------
         symmetric : bool
             Centre the colour scale on zero and clip it at the ``clip`` percentile of
-            |value|, for wavefields. Otherwise span the data's range, for models.
+            |value|, in ``RdBu`` by default, for wavefields. Otherwise span the data's range,
+            in ``gray`` by default, for models.
         sources, receivers : tuple of array-like, optional
             ``(x, z)`` positions in metres, drawn as stars and triangles.
+        background : xarray.DataArray, optional
+            A field over the same (z, x), typically the model, drawn beneath in grey so that
+            it shows through the section, as in the wavefront-healing animations.
+        alpha : float, optional
+            Opacity of the section; 0.6 when a background is drawn, 1 otherwise.
 
         Examples
         --------
-        >>> Section(snapshot).plot(symmetric=True, sources=([1000.], [20.]))
+        >>> Section(snapshot).plot(symmetric=True, background=model.vp, sources=([1000.], [20.]))
 
         """
         da = self.da.transpose('z', 'x')
         if symmetric:
             vmax = float(np.percentile(np.abs(da.values), clip)) or 1.0
             vmin = -vmax
-            cmap = cmap or 'gray'
+            cmap = cmap or 'RdBu'
         else:
             vmin = float(da.min())
             vmax = float(da.max())
             cmap = cmap or 'gray'
         x0, x1 = _edges(da['x'].values)
         z0, z1 = _edges(da['z'].values)
+        extent = (x0, x1, z1, z0)
         if ax is None:
             fig, ax = plt.subplots(figsize=(7, 4))
         fig = ax.figure
-        im = ax.imshow(da.values, cmap=cmap, vmin=vmin, vmax=vmax, extent=(x0, x1, z1, z0), interpolation='nearest')
+        if background is not None:
+            ax.imshow(background.transpose('z', 'x').values, cmap='gray', extent=extent, interpolation='nearest')
+            alpha = 0.6 if alpha is None else alpha
+        im = ax.imshow(da.values, cmap=cmap, vmin=vmin, vmax=vmax, extent=extent, interpolation='nearest', alpha=alpha)
         if sources is not None:
             ax.scatter(*sources, marker='*', s=90, c='white', edgecolors='k', linewidths=0.8, zorder=3, label='Source')
         if receivers is not None:
