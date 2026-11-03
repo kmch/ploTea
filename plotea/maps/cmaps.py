@@ -297,6 +297,22 @@ def clay() -> ContinuousCmap:
     return _quantity('Oranges', 'Clay content', 'g/kg')
 
 
+def distance_to_outlet() -> ContinuousCmap:
+    """
+    Distance down the network to the sea, logarithmic, near the sea blue and far from it red.
+
+    A rainbow rather than a sequential ramp, and linear rather than logarithmic: nearly every
+    cell is tens to hundreds of kilometres from the sea, so both a darkening ramp and a log
+    scale put the whole continent in one colour and show nothing.
+
+    Examples
+    --------
+    >>> raster.plot(cmap=distance_to_outlet())
+
+    """
+    return _quantity('turbo', 'Distance to outlet', 'm')
+
+
 def elevation(unit='m') -> ContinuousCmap:
     """
     Land elevation on the terrain ramp, lowlands green and summits white.
@@ -333,6 +349,30 @@ def elevation_cm() -> ContinuousCmap:
     return _quantity(land_terrain(), 'Elevation', 'm', scale=0.01)
 
 
+def flow_accumulation() -> ContinuousCmap:
+    """
+    Upstream cells draining through each cell, logarithmic: a trunk river is six orders above a hillslope.
+
+    Examples
+    --------
+    >>> raster.plot(cmap=flow_accumulation())
+
+    """
+    return _quantity('Blues', 'Flow accumulation', 'cells', log=True)
+
+
+def latitude() -> ContinuousCmap:
+    """
+    Latitude as a covariate: south pale, north dark, with no quantity implied.
+
+    Examples
+    --------
+    >>> raster.plot(cmap=latitude())
+
+    """
+    return _quantity('YlGnBu', 'Latitude', '°N')
+
+
 def livestock() -> ContinuousCmap:
     """
     Livestock density, logarithmic: a few herds carry most of the range.
@@ -343,6 +383,30 @@ def livestock() -> ContinuousCmap:
 
     """
     return _quantity('YlOrRd', 'Livestock density', log=True)
+
+
+def longest_upstream_distance() -> ContinuousCmap:
+    """
+    Longest flow path above each cell, logarithmic like the other two network distances.
+
+    Examples
+    --------
+    >>> raster.plot(cmap=longest_upstream_distance())
+
+    """
+    return _quantity('viridis', 'Longest upstream distance', 'm', log=True)
+
+
+def longitude() -> ContinuousCmap:
+    """
+    Longitude as a covariate, diverging about the prime meridian so west and east read apart.
+
+    Examples
+    --------
+    >>> raster.plot(cmap=longitude())
+
+    """
+    return _quantity('PuOr', 'Longitude', '°E', center=0)
 
 
 def population() -> ContinuousCmap:
