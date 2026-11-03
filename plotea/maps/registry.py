@@ -43,4 +43,8 @@ ROIS = {
     'greater_london' : (-0.600, 51.250,  0.240, 51.720),   # east edge set so the Thames reaches the frame (its HydroRIVERS mouth is ~0.32 E)
     'poland_central' : (18.500, 51.200, 21.700, 52.900),   # Łódź -- Warsaw
     'po_valley'      : ( 7.500, 44.600, 12.600, 46.000),
+
+    # Ranges across borders
+    'alps'           : ( 5.000, 43.500, 16.500, 48.500),   # the Alpine arc, Nice to Vienna
+    'tyrol'          : (10.500, 46.600, 12.500, 47.600),   # Innsbruck -- Bolzano, the high Alps
 }
