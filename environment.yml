@@ -11,7 +11,7 @@ channels:
 dependencies:
   - python>=3.11          # plotea/log.py reads code.co_qualname
 # Core
-  - matplotlib>=3.9,<4
+  - matplotlib-base>=3.9,<4    # not matplotlib, which pulls in the Qt toolkit for nothing
   - numpy
   - pandas
 # Geospatial
@@ -21,6 +21,8 @@ dependencies:
   - rioxarray
   - shapely
   - xarray
+# Reading Parquet, as the README's How to recipe does
+  - pyarrow
 # Notebooks
   - ipykernel
   - jupyterlab
