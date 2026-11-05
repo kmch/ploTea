@@ -46,5 +46,7 @@ ROIS = {
 
     # Ranges across borders
     'alps'           : ( 5.000, 43.500, 16.500, 48.500),   # the Alpine arc, Nice to Vienna
+    'balkans'        : (18.000, 41.000, 29.500, 48.000),   # the lower Danube and its basin, Belgrade to the delta
+    'italy_south'    : (12.000, 36.000, 18.500, 41.500),   # the mezzogiorno with Sicily
     'tyrol'          : (10.500, 46.600, 12.500, 47.600),   # Innsbruck -- Bolzano, the high Alps
 }

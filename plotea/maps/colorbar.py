@@ -49,9 +49,12 @@ class Colorbar:
         ax
             The map axes to sit beside.
         width : str
-            Bar thickness as a percentage of the axes width.
+            Bar thickness as a percentage of the axes width, or of its height for a
+            horizontal bar.
         pad : float
-            Gap between map and bar, in axes-width fractions.
+            Gap between map and bar, in axes-width fractions, or axes-height fractions for
+            a horizontal bar. A horizontal bar under a map with graticule labels needs about
+            0.08 to clear them.
         powerlimits : tuple of int
             Decade range kept in plain digits. Outside it the ticks switch to a shared
             ``x10^n`` offset rather than each carrying an exponent. See
@@ -91,14 +94,17 @@ class Colorbar:
 
         horizontal = orientation == 'horizontal'
         if rect is not None:
-            anchor, size = tuple(rect), ('100%', '100%')
+            anchor = tuple(rect)
         else:
-            anchor = (0.0, -pad - 0.05, 1, 0.05) if horizontal else (1 + pad, 0.0, 1, 1)
-            size   = ('100%', width) if horizontal else (width, '100%')
+            # The anchor box is the bar itself, so its thickness is a fraction of the axes
+            # directly. Taken as a percentage of a box already 0.05 of the axes high, as
+            # horizontal bars once were, '3%' left a hairline.
+            thick  = float(str(width).rstrip('%')) / 100
+            anchor = (0.0, -pad - thick, 1, thick) if horizontal else (1 + pad, 0.0, thick, 1)
         cax = inset_axes(
             ax,
-            width         = size[0],
-            height        = size[1],
+            width         = '100%',
+            height        = '100%',
             loc           = 'lower left',
             bbox_to_anchor= anchor,
             bbox_transform= ax.transAxes,
