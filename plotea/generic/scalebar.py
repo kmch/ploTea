@@ -27,7 +27,7 @@ def _nice(value: float) -> float:
     return step * 10 ** exp
 
 
-def scalebar(ax, length_km=None, location: str = 'lower right', segments: int = 4, pad: float = 0.07, height: float = 0.018, fontsize: float = 7, linewidth: float = 0.8):
+def scalebar(ax, length_km=None, location: str = 'lower right', segments: int = 4, pad: float = 0.07, height: float = 0.018, fontsize: float = 7, linewidth: float = 0.8, anchor=None):
     """
     Draw a segmented black/white scale bar with distance labels on a projected map axes.
 
@@ -40,6 +40,10 @@ def scalebar(ax, length_km=None, location: str = 'lower right', segments: int = 
         is chosen when None.
     location : str
         Corner: 'lower right' (default), 'lower left', 'upper right', 'upper left'.
+    anchor : tuple of float, optional
+        ``(x, y)`` in axes fractions for the bar's left end, overriding ``location``. A map
+        whose corners are all busy -- a coastline, a legend, a dense cluster of data -- can
+        put the bar in an empty stretch of sea instead.
     segments : int
         Number of alternating black/white blocks.
     pad : float
@@ -78,8 +82,11 @@ def scalebar(ax, length_km=None, location: str = 'lower right', segments: int = 
         length_km = _nice(0.25 * xr / 1000.0)
     total = length_km * 1000.0
 
-    xs = x1 - pad * xr - total if 'right' in location else x0 + pad * xr
-    yb = y0 + pad * yr if 'lower' in location else y1 - pad * yr - height * yr
+    if anchor is not None:
+        xs, yb = x0 + anchor[0] * xr, y0 + anchor[1] * yr
+    else:
+        xs = x1 - pad * xr - total if 'right' in location else x0 + pad * xr
+        yb = y0 + pad * yr if 'lower' in location else y1 - pad * yr - height * yr
     h = height * yr
     seg = total / segments
 
